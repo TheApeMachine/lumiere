@@ -67,8 +67,9 @@ func (s *Server) healthCheck(c *gin.Context) {
 }
 
 func (s *Server) createProject(c *gin.Context) {
-	// Parse multipart form
-	if err := c.Request.ParseMultipartForm(100 << 20); err != nil { // 100 MB max
+	// Parse multipart form with configured max upload size
+	maxUploadSize := s.config.MaxUploadSizeMB << 20 // Convert MB to bytes
+	if err := c.Request.ParseMultipartForm(maxUploadSize); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form"})
 		return
 	}
@@ -99,7 +100,7 @@ func (s *Server) createProject(c *gin.Context) {
 	
 	// Save audio file
 	audioPath := filepath.Join(s.config.UploadDir, projectID, "audio.mp3")
-	if err := os.MkdirAll(filepath.Dir(audioPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(audioPath), config.DefaultDirPerms); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
 		return
 	}

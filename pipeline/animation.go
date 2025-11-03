@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/TheApeMachine/lumiere/config"
 	"github.com/TheApeMachine/lumiere/models"
 	"github.com/google/uuid"
 )
@@ -31,7 +32,7 @@ func (a *Animator) GenerateAnimations(projectID string, seeds []models.VisualSee
 	
 	// Create project output directory
 	projectDir := filepath.Join(a.outputDir, projectID, "animations")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(projectDir, config.DefaultDirPerms); err != nil {
 		return nil, fmt.Errorf("failed to create animations directory: %w", err)
 	}
 	
@@ -85,7 +86,7 @@ func (a *Animator) generateAnimation(firstFrame, lastFrame string, startTime, en
 		firstFrame, lastFrame, duration, audioPath,
 	)
 	
-	if err := os.WriteFile(outputPath, []byte(placeholderContent), 0644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(placeholderContent), config.DefaultFilePerms); err != nil {
 		return fmt.Errorf("failed to write placeholder animation: %w", err)
 	}
 	
@@ -113,7 +114,7 @@ func (a *Animator) ComposeVideo(projectID string, animations []models.Animation,
 			i, anim.StartTime, anim.EndTime, anim.VideoPath)
 	}
 	
-	if err := os.WriteFile(finalVideoPath, []byte(compositionInfo), 0644); err != nil {
+	if err := os.WriteFile(finalVideoPath, []byte(compositionInfo), config.DefaultFilePerms); err != nil {
 		return "", fmt.Errorf("failed to write final video: %w", err)
 	}
 	

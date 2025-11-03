@@ -50,6 +50,7 @@ The server will start on port 8080 (configurable via `PORT` environment variable
 - `PORT`: Server port (default: 8080)
 - `UPLOAD_DIR`: Directory for uploaded files (default: ./uploads)
 - `OUTPUT_DIR`: Directory for generated outputs (default: ./outputs)
+- `MAX_UPLOAD_SIZE_MB`: Maximum upload size in megabytes (default: 100)
 - `CONCEPT_GENERATION_ENABLED`: Enable concept generation (default: true)
 - `VISUAL_SEEDING_ENABLED`: Enable visual seeding (default: true)
 - `ANIMATION_ENABLED`: Enable animation (default: true)

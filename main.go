@@ -31,7 +31,7 @@ func main() {
 func ensureDirectories(cfg *config.Config) error {
 	dirs := []string{cfg.UploadDir, cfg.OutputDir}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, config.DefaultDirPerms); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}

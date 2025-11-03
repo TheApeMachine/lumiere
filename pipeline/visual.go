@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/TheApeMachine/lumiere/config"
 	"github.com/TheApeMachine/lumiere/models"
 	"github.com/google/uuid"
 )
@@ -31,7 +32,7 @@ func (vs *VisualSeeder) GenerateSeeds(projectID string, concept *models.Concept,
 	
 	// Create project output directory
 	projectDir := filepath.Join(vs.outputDir, projectID, "seeds")
-	if err := os.MkdirAll(projectDir, 0755); err != nil {
+	if err := os.MkdirAll(projectDir, config.DefaultDirPerms); err != nil {
 		return nil, fmt.Errorf("failed to create seeds directory: %w", err)
 	}
 	
@@ -70,7 +71,7 @@ func (vs *VisualSeeder) generateImage(prompt string, outputPath string, characte
 	
 	placeholderContent := fmt.Sprintf("# AI Generated Image\nPrompt: %s\nCharacter Images: %v\n", prompt, characterImages)
 	
-	if err := os.WriteFile(outputPath, []byte(placeholderContent), 0644); err != nil {
+	if err := os.WriteFile(outputPath, []byte(placeholderContent), config.DefaultFilePerms); err != nil {
 		return fmt.Errorf("failed to write placeholder image: %w", err)
 	}
 	

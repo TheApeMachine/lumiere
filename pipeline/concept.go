@@ -9,6 +9,10 @@ import (
 	"github.com/TheApeMachine/lumiere/models"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 // ConceptGenerator analyzes audio and generates video concepts
 type ConceptGenerator struct{}
 
