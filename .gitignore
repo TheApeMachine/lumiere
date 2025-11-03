@@ -18,6 +18,17 @@ go.work
 # Dependencies
 vendor/
 
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
 # IDE
 .vscode/
 .idea/
@@ -33,3 +44,9 @@ outputs/
 # OS
 .DS_Store
 Thumbs.db
+
+# AI Models (downloaded at runtime)
+services/*/models/
+*.safetensors
+*.ckpt
+*.pth

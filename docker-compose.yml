@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Image Generation Service (Stable Diffusion)
+  image-generator:
+    build:
+      context: ./services/image-generator
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - IMAGE_SERVICE_PORT=5001
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # For Mac M1/M2 with Metal, remove the deploy section above
+
+  # Video Generation Service
+  video-generator:
+    build:
+      context: ./services/video-generator
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - VIDEO_SERVICE_PORT=5002
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    # For Mac M1/M2 with Metal, remove the deploy section above
+
+  # Audio Analysis Service
+  audio-analyzer:
+    build:
+      context: ./services/audio-analyzer
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      - AUDIO_SERVICE_PORT=5003
+    volumes:
+      - ./uploads:/app/uploads
+
+  # Main Lumiere API Server
+  lumiere:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - UPLOAD_DIR=/app/uploads
+      - OUTPUT_DIR=/app/outputs
+      - USE_AI_SERVICES=true
+      - IMAGE_SERVICE_URL=http://image-generator:5001
+      - VIDEO_SERVICE_URL=http://video-generator:5002
+      - AUDIO_SERVICE_URL=http://audio-analyzer:5003
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    depends_on:
+      - image-generator
+      - video-generator
+      - audio-analyzer
+
+volumes:
+  uploads:
+  outputs:
