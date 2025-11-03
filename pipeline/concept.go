@@ -9,9 +9,7 @@ import (
 	"github.com/TheApeMachine/lumiere/models"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
+var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 // ConceptGenerator analyzes audio and generates video concepts
 type ConceptGenerator struct{}
@@ -110,7 +108,7 @@ func calculateIntensity(normalizedTime float64) float64 {
 	// Start low, build up, peak around 2/3, then resolve
 	base := 0.3 + 0.4*math.Sin(normalizedTime*math.Pi)
 	variation := 0.2 * math.Sin(normalizedTime*math.Pi*4)
-	noise := (rand.Float64() - 0.5) * 0.1
+	noise := (rng.Float64() - 0.5) * 0.1
 	
 	intensity := base + variation + noise
 	
