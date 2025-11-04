@@ -27,8 +27,8 @@ func NewPipeline(cfg *config.Config) *Pipeline {
 	return &Pipeline{
 		config:           cfg,
 		conceptGenerator: NewConceptGenerator(),
-		visualSeeder:     NewVisualSeeder(cfg.OutputDir),
-		animator:         NewAnimator(cfg.OutputDir),
+		visualSeeder:     NewVisualSeederWithConfig(cfg.OutputDir, cfg),
+		animator:         NewAnimatorWithConfig(cfg.OutputDir, cfg),
 		aiServiceConfig:  DefaultAIServiceConfig(),
 		useAI:            useAI,
 	}

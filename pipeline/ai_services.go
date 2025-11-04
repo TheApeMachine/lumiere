@@ -158,6 +158,11 @@ func NewAIVisualSeeder(outputDir string, config *AIServiceConfig) *AIVisualSeede
 
 // GenerateImage generates an image using the Python service
 func (vs *AIVisualSeeder) GenerateImage(prompt, outputPath string) error {
+	return vs.GenerateImageWithParams(prompt, outputPath, nil)
+}
+
+// GenerateImageWithParams generates an image with custom parameters
+func (vs *AIVisualSeeder) GenerateImageWithParams(prompt, outputPath string, customParams map[string]interface{}) error {
 	// Check if service is available
 	healthURL := vs.config.ImageServiceURL + "/health"
 	resp, err := vs.client.Get(healthURL)
@@ -168,13 +173,20 @@ func (vs *AIVisualSeeder) GenerateImage(prompt, outputPath string) error {
 	}
 	resp.Body.Close()
 
-	// Call image generation service
+	// Build request data with defaults
 	reqData := map[string]interface{}{
 		"prompt":              prompt,
 		"output_path":         outputPath,
 		"num_inference_steps": 20, // Fast generation for consumer hardware
 		"width":               512,
 		"height":              512,
+	}
+	
+	// Override with custom parameters if provided
+	if customParams != nil {
+		for k, v := range customParams {
+			reqData[k] = v
+		}
 	}
 
 	jsonData, err := json.Marshal(reqData)
@@ -237,6 +249,11 @@ func NewAIAnimator(outputDir string, config *AIServiceConfig) *AIAnimator {
 
 // GenerateAnimation generates a video using the Python service
 func (a *AIAnimator) GenerateAnimation(startFrame, endFrame, outputPath string, duration float64) error {
+	return a.GenerateAnimationWithParams(startFrame, endFrame, outputPath, duration, nil)
+}
+
+// GenerateAnimationWithParams generates a video with custom parameters
+func (a *AIAnimator) GenerateAnimationWithParams(startFrame, endFrame, outputPath string, duration float64, customParams map[string]interface{}) error {
 	// Check if service is available
 	healthURL := a.config.VideoServiceURL + "/health"
 	resp, err := a.client.Get(healthURL)
@@ -257,13 +274,20 @@ func (a *AIAnimator) GenerateAnimation(startFrame, endFrame, outputPath string, 
 		numFrames = 30
 	}
 
-	// Call video generation service
+	// Build request data with defaults
 	reqData := map[string]interface{}{
 		"start_frame": startFrame,
 		"end_frame":   endFrame,
 		"output_path": outputPath,
 		"num_frames":  numFrames,
 		"fps":         int(fps),
+	}
+	
+	// Override with custom parameters if provided
+	if customParams != nil {
+		for k, v := range customParams {
+			reqData[k] = v
+		}
 	}
 
 	jsonData, err := json.Marshal(reqData)

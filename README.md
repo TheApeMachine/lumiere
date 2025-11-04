@@ -14,6 +14,7 @@ Lumiere uses a sophisticated AI pipeline to create music videos:
 
 ## Features
 
+### Core Features
 - 🎵 **Real Audio Analysis**: Uses librosa to detect tempo, beats, and intensity patterns
 - 🎨 **Local AI Image Generation**: Stable Diffusion v1.5 running on your hardware
 - 🎬 **Local AI Video Animation**: Stable Video Diffusion with frame interpolation fallback
@@ -21,6 +22,16 @@ Lumiere uses a sophisticated AI pipeline to create music videos:
 - 🚀 **CPU Fallback**: Works on any hardware with graceful degradation
 - 👤 **Character Consistency**: Optional character images for consistent character generation
 - 🔄 **RESTful API**: Easy integration with web and mobile applications
+
+### Enhanced Features (New!)
+- 🎼 **Beat Detection & Audio Analysis**: Precise beat and downbeat timestamps for perfect sync
+- 🎬 **Automatic Transition Parameters**: Smart selection of cuts, fades, and camera movements
+- 📊 **Variable Seed Density**: More visual cuts in high-energy sections, fewer in calm parts
+- 👁️ **Character Face Preservation**: Maintain character likeness across all frames
+- ✅ **Quality Control**: Automated validation of generated images and videos
+- ⚙️ **Configurable Output**: Flexible resolution, FPS, and quality settings
+
+See [FEATURES.md](FEATURES.md) for detailed documentation on all enhanced features.
 
 ## Installation
 
