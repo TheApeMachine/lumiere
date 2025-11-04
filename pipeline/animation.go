@@ -150,15 +150,15 @@ func (a *Animator) determineAnimationStyle(duration float64, index int) (transit
 
 // validateVideoQuality performs quality validation on generated video
 func (a *Animator) validateVideoQuality(videoPath string) float64 {
-	// In production, this would:
+	// TODO: In production, this would:
 	// 1. Check for frozen frames
 	// 2. Check for extreme artifacts
 	// 3. Verify smooth motion
 	// 4. Check audio sync
-	// For now, return a simulated score
 	
-	// Simulate quality check
-	return 0.7 + (0.3 * (0.5 + 0.5*(float64(len(videoPath)%100)/100.0)))
+	// Placeholder: Return a deterministic simulated score for testing
+	// This ensures consistent behavior and makes testing predictable
+	return 0.85 // Fixed high score for placeholder implementation
 }
 
 // generateAnimationWithParams simulates AI video generation with parameters

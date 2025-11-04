@@ -26,7 +26,7 @@ func NewVisualSeeder(outputDir string) *VisualSeeder {
 	return &VisualSeeder{
 		outputDir:              outputDir,
 		baseSeedDensity:        2.0,  // 2 seeds per minute by default
-		intensityMultiplier:    2.0,  // Up to 3x at high intensity
+		intensityMultiplier:    2.0,  // Up to 2x more seeds at maximum intensity
 		enableFacePreservation: true,
 		enableQualityControl:   true,
 		minQualityScore:        0.5,
@@ -149,7 +149,7 @@ func (vs *VisualSeeder) addIntensityBasedSeeds(basePositions []SeedPosition, con
 		if currentMoment.Intensity > 0.6 {
 			// Calculate number of extra seeds based on intensity
 			duration := nextMoment.Timestamp - currentMoment.Timestamp
-			extraSeeds := int(duration/60.0*vs.baseSeedDensity*currentMoment.Intensity*vs.intensityMultiplier) - 1
+			extraSeeds := vs.calculateExtraSeedCount(duration, currentMoment.Intensity)
 			
 			if extraSeeds > 0 {
 				// Align extra seeds with beats if available
@@ -181,10 +181,27 @@ func (vs *VisualSeeder) addIntensityBasedSeeds(basePositions []SeedPosition, con
 	return allPositions
 }
 
+// calculateExtraSeedCount determines how many extra seeds to add based on duration and intensity
+func (vs *VisualSeeder) calculateExtraSeedCount(duration float64, intensity float64) int {
+	// Calculate base seeds for this duration
+	totalSeeds := duration / 60.0 * vs.baseSeedDensity * intensity * vs.intensityMultiplier
+	// Subtract 1 because we already have the key moment seed
+	extraSeeds := int(totalSeeds) - 1
+	if extraSeeds < 0 {
+		extraSeeds = 0
+	}
+	return extraSeeds
+}
+
 // findNearestBeatInRange finds the nearest beat within a time range
 func findNearestBeatInRange(target float64, beats []float64, minTime, maxTime float64) float64 {
+	if len(beats) == 0 {
+		return target
+	}
+	
+	// Initialize with first valid beat or target
 	nearest := target
-	minDiff := math.Abs(target - nearest)
+	minDiff := math.MaxFloat64
 	
 	for _, beat := range beats {
 		if beat >= minTime && beat <= maxTime {
@@ -212,15 +229,15 @@ func (vs *VisualSeeder) enhancePromptWithCharacter(prompt, characterImage string
 
 // validateImageQuality performs quality validation on generated image
 func (vs *VisualSeeder) validateImageQuality(imagePath string) float64 {
-	// In production, this would:
-	// 1. Check for blur/sharpness
-	// 2. Check for artifacts
-	// 3. Verify composition
-	// 4. Check color balance
-	// For now, return a simulated score
+	// TODO: In production, this would:
+	// 1. Check for blur/sharpness using variance of Laplacian
+	// 2. Check for artifacts using noise detection
+	// 3. Verify composition using rule of thirds or similar
+	// 4. Check color balance using histogram analysis
 	
-	// Simulate quality check (random score between 0.6 and 1.0)
-	return 0.6 + (0.4 * (0.5 + 0.5*math.Sin(float64(len(imagePath)))))
+	// Placeholder: Return a deterministic simulated score for testing
+	// This ensures consistent behavior and makes testing predictable
+	return 0.75 // Fixed good score for placeholder implementation
 }
 
 // generateImage simulates AI image generation

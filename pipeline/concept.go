@@ -132,10 +132,16 @@ func calculateIntensity(normalizedTime float64) float64 {
 	return intensity
 }
 
+const (
+	minTempo = 100.0 // Minimum BPM
+	maxTempo = 140.0 // Maximum BPM
+)
+
 // generateAudioAnalysis creates detailed audio analysis with beat detection
 func generateAudioAnalysis(duration float64) *models.AudioAnalysis {
 	// Simulate tempo detection (in production, use librosa or similar)
-	tempo := 120.0 + (rng.Float64()-0.5)*40.0 // 100-140 BPM range
+	// Generate tempo in range [minTempo, maxTempo]
+	tempo := minTempo + rng.Float64()*(maxTempo-minTempo)
 	
 	// Generate beat timestamps based on tempo
 	beatInterval := 60.0 / tempo // seconds per beat
