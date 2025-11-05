@@ -43,10 +43,10 @@ func Start(cfg *config.Config) error {
 
 func setupRouter(server *Server) *gin.Engine {
 	router := gin.Default()
-	
+
 	// Health check
 	router.GET("/health", server.healthCheck)
-	
+
 	// API endpoints
 	api := router.Group("/api/v1")
 	{
@@ -55,13 +55,13 @@ func setupRouter(server *Server) *gin.Engine {
 		api.GET("/projects", server.listProjects)
 		api.POST("/projects/:id/process", server.processProject)
 	}
-	
+
 	return router
 }
 
 func (s *Server) healthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"status": "healthy",
+		"status":  "healthy",
 		"service": "lumiere",
 	})
 }
@@ -73,90 +73,128 @@ func (s *Server) createProject(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse form"})
 		return
 	}
-	
+
 	// Get prompt
 	prompt := c.PostForm("prompt")
 	if prompt == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Prompt is required"})
 		return
 	}
-	
+
 	// Create project
 	projectID := uuid.New().String()
 	project := &models.Project{
-		ID:        projectID,
-		Prompt:    prompt,
-		Status:    "created",
-		CreatedAt: time.Now(),
+		ID:              projectID,
+		Prompt:          prompt,
+		Status:          "created",
+		CreatedAt:       time.Now(),
 		CharacterImages: []string{},
 	}
-	
+
 	// Handle audio file upload
 	audioFile, err := c.FormFile("audio")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Audio file is required"})
 		return
 	}
-	
-	// Save audio file
+
+	// Validate and save audio file
 	audioPath := filepath.Join(s.config.UploadDir, projectID, "audio.mp3")
 	if err := os.MkdirAll(filepath.Dir(audioPath), config.DefaultDirPerms); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create upload directory"})
 		return
 	}
-	
-	if err := c.SaveUploadedFile(audioFile, audioPath); err != nil {
+
+	file, err := audioFile.Open()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid audio file"})
+		return
+	}
+	defer file.Close()
+
+	// Detect content type
+	buf := make([]byte, 512)
+	_, _ = file.Read(buf)
+	contentType := http.DetectContentType(buf)
+	if contentType[:5] != "audio" && contentType != "application/octet-stream" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported audio type"})
+		return
+	}
+	// Rewind and save
+	if _, err := file.Seek(0, 0); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read audio file"})
+		return
+	}
+	out, err := os.Create(audioPath)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save audio file"})
 		return
 	}
+	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write audio file"})
+		return
+	}
+	out.Close()
 	project.AudioFile = audioPath
-	
+
 	// Handle optional character images
 	form := c.Request.MultipartForm
 	if form != nil && form.File["character_images"] != nil {
 		for i, fileHeader := range form.File["character_images"] {
 			imagePath := filepath.Join(s.config.UploadDir, projectID, fmt.Sprintf("character_%d.png", i))
-			
+
 			file, err := fileHeader.Open()
 			if err != nil {
 				continue
 			}
 			defer file.Close()
-			
+
+			// Validate image content type
+			buf := make([]byte, 512)
+			_, _ = file.Read(buf)
+			imgType := http.DetectContentType(buf)
+			if imgType[:5] != "image" {
+				continue
+			}
+			if _, err := file.Seek(0, 0); err != nil {
+				continue
+			}
+
 			outFile, err := os.Create(imagePath)
 			if err != nil {
 				continue
 			}
 			defer outFile.Close()
-			
+
 			if _, err := io.Copy(outFile, file); err != nil {
 				continue
 			}
-			
+
 			project.CharacterImages = append(project.CharacterImages, imagePath)
 		}
 	}
-	
+
 	// Store project
 	s.mu.Lock()
 	s.projects[projectID] = project
 	s.mu.Unlock()
-	
+
 	c.JSON(http.StatusCreated, project)
 }
 
 func (s *Server) getProject(c *gin.Context) {
 	projectID := c.Param("id")
-	
+
 	s.mu.RLock()
 	project, exists := s.projects[projectID]
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
 		return
 	}
-	
+
 	c.JSON(http.StatusOK, project)
 }
 
@@ -167,7 +205,7 @@ func (s *Server) listProjects(c *gin.Context) {
 		projectList = append(projectList, project)
 	}
 	s.mu.RUnlock()
-	
+
 	c.JSON(http.StatusOK, gin.H{
 		"projects": projectList,
 		"count":    len(projectList),
@@ -176,35 +214,42 @@ func (s *Server) listProjects(c *gin.Context) {
 
 func (s *Server) processProject(c *gin.Context) {
 	projectID := c.Param("id")
-	
+
 	s.mu.RLock()
 	project, exists := s.projects[projectID]
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Project not found"})
 		return
 	}
-	
+
 	if project.Status != "created" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Project already processed or in progress"})
 		return
 	}
-	
+
 	// Process asynchronously
+	s.mu.Lock()
 	project.Status = "processing"
+	s.mu.Unlock()
 	go func() {
 		if err := s.pipeline.Process(project); err != nil {
+			s.mu.Lock()
 			project.Status = "failed"
+			s.mu.Unlock()
 			fmt.Printf("Pipeline failed for project %s: %v\n", projectID, err)
 		} else {
 			completedAt := time.Now()
+			s.mu.Lock()
 			project.CompletedAt = &completedAt
+			project.Status = "completed"
+			s.mu.Unlock()
 		}
 	}()
-	
+
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Processing started",
+		"message":    "Processing started",
 		"project_id": projectID,
 	})
 }

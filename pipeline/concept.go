@@ -28,13 +28,13 @@ func NewConceptGenerator() *ConceptGenerator {
 func (cg *ConceptGenerator) Generate(audioPath, userPrompt string) (*models.Concept, error) {
 	// Simulate audio analysis (in production, use actual audio processing libraries)
 	duration := estimateAudioDuration(audioPath)
-	
+
 	// Generate detailed audio analysis
 	audioAnalysis := generateAudioAnalysis(duration)
-	
+
 	// Generate key moments aligned with beats and intensity
 	keyMoments := generateKeyMomentsWithBeats(duration, userPrompt, audioAnalysis)
-	
+
 	concept := &models.Concept{
 		Description:   fmt.Sprintf("AI-generated music video concept based on prompt: %s", userPrompt),
 		KeyMoments:    keyMoments,
@@ -49,13 +49,13 @@ func (cg *ConceptGenerator) Generate(audioPath, userPrompt string) (*models.Conc
 			"total_beats":  len(audioAnalysis.Beats),
 		},
 	}
-	
+
 	return concept, nil
 }
 
 // estimateAudioDuration simulates getting audio duration
 // In production, use a library like go-mp3 or ffmpeg
-func estimateAudioDuration(audioPath string) float64 {
+func estimateAudioDuration(_ string) float64 {
 	// For demonstration, return a typical song duration
 	// Real implementation would parse the MP3 file
 	return 180.0 // 3 minutes
@@ -64,7 +64,7 @@ func estimateAudioDuration(audioPath string) float64 {
 // generateKeyMoments creates significant moments for the video
 func generateKeyMoments(duration float64, userPrompt string) []models.KeyMoment {
 	moments := []models.KeyMoment{}
-	
+
 	// Generate key moments at strategic intervals
 	intervals := []float64{0.0, 0.15, 0.33, 0.50, 0.67, 0.85, 1.0}
 	themes := []string{
@@ -76,11 +76,11 @@ func generateKeyMoments(duration float64, userPrompt string) []models.KeyMoment 
 		"peak moment, maximum intensity",
 		"resolution, closing scene",
 	}
-	
+
 	for i, interval := range intervals {
 		timestamp := duration * interval
 		intensity := calculateIntensity(interval)
-		
+
 		moment := models.KeyMoment{
 			Timestamp:   timestamp,
 			Description: themes[i],
@@ -89,25 +89,25 @@ func generateKeyMoments(duration float64, userPrompt string) []models.KeyMoment 
 		}
 		moments = append(moments, moment)
 	}
-	
+
 	return moments
 }
 
 // generateIntensityCurve creates an intensity profile for the audio
 func generateIntensityCurve(duration float64) []models.IntensityPoint {
 	points := []models.IntensityPoint{}
-	
+
 	// Sample at 1-second intervals
 	for t := 0.0; t < duration; t += 1.0 {
 		normalized := t / duration
 		intensity := calculateIntensity(normalized)
-		
+
 		points = append(points, models.IntensityPoint{
 			Timestamp: t,
 			Value:     intensity,
 		})
 	}
-	
+
 	return points
 }
 
@@ -118,9 +118,9 @@ func calculateIntensity(normalizedTime float64) float64 {
 	base := 0.3 + 0.4*math.Sin(normalizedTime*math.Pi)
 	variation := 0.2 * math.Sin(normalizedTime*math.Pi*4)
 	noise := (rng.Float64() - 0.5) * 0.1
-	
+
 	intensity := base + variation + noise
-	
+
 	// Clamp between 0 and 1
 	if intensity < 0 {
 		intensity = 0
@@ -128,7 +128,7 @@ func calculateIntensity(normalizedTime float64) float64 {
 	if intensity > 1 {
 		intensity = 1
 	}
-	
+
 	return intensity
 }
 
@@ -142,23 +142,23 @@ func generateAudioAnalysis(duration float64) *models.AudioAnalysis {
 	// Simulate tempo detection (in production, use librosa or similar)
 	// Generate tempo in range [minTempo, maxTempo]
 	tempo := minTempo + rng.Float64()*(maxTempo-minTempo)
-	
+
 	// Generate beat timestamps based on tempo
 	beatInterval := 60.0 / tempo // seconds per beat
 	beats := []float64{}
 	downbeats := []float64{}
 	onsetStrengths := []float64{}
-	
+
 	for t := 0.0; t < duration; t += beatInterval {
 		beats = append(beats, t)
 		onsetStrengths = append(onsetStrengths, 0.5+rng.Float64()*0.5)
-		
+
 		// Every 4th beat is a downbeat
 		if len(beats)%4 == 1 {
 			downbeats = append(downbeats, t)
 		}
 	}
-	
+
 	return &models.AudioAnalysis{
 		Duration:       duration,
 		Tempo:          tempo,
@@ -171,7 +171,7 @@ func generateAudioAnalysis(duration float64) *models.AudioAnalysis {
 // generateKeyMomentsWithBeats creates key moments aligned with beats and downbeats
 func generateKeyMomentsWithBeats(duration float64, userPrompt string, analysis *models.AudioAnalysis) []models.KeyMoment {
 	moments := []models.KeyMoment{}
-	
+
 	// Strategic intervals aligned with musical structure
 	intervals := []float64{0.0, 0.15, 0.33, 0.50, 0.67, 0.85, 1.0}
 	themes := []string{
@@ -183,20 +183,20 @@ func generateKeyMomentsWithBeats(duration float64, userPrompt string, analysis *
 		"peak moment, maximum intensity",
 		"resolution, closing scene",
 	}
-	
+
 	for i, interval := range intervals {
 		timestamp := duration * interval
-		
+
 		// Align timestamp to nearest downbeat for better sync
 		if len(analysis.Downbeats) > 0 {
 			timestamp = findNearestBeat(timestamp, analysis.Downbeats)
 		}
-		
+
 		intensity := calculateIntensity(interval)
-		
+
 		// Determine transition style based on intensity
 		transitionStyle, cutFreq, motionInt, cameraMove := determineTransitionParameters(intensity)
-		
+
 		moment := models.KeyMoment{
 			Timestamp:       timestamp,
 			Description:     themes[i],
@@ -209,7 +209,7 @@ func generateKeyMomentsWithBeats(duration float64, userPrompt string, analysis *
 		}
 		moments = append(moments, moment)
 	}
-	
+
 	return moments
 }
 
@@ -218,10 +218,10 @@ func findNearestBeat(target float64, beats []float64) float64 {
 	if len(beats) == 0 {
 		return target
 	}
-	
+
 	nearest := beats[0]
 	minDiff := math.Abs(target - nearest)
-	
+
 	for _, beat := range beats {
 		diff := math.Abs(target - beat)
 		if diff < minDiff {
@@ -229,7 +229,7 @@ func findNearestBeat(target float64, beats []float64) float64 {
 			nearest = beat
 		}
 	}
-	
+
 	return nearest
 }
 
@@ -254,6 +254,6 @@ func determineTransitionParameters(intensity float64) (transitionStyle, cutFreq,
 		motionInt = "high"
 		cameraMove = "zoom"
 	}
-	
+
 	return
 }

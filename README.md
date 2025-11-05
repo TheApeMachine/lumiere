@@ -1,8 +1,8 @@
-# Lumiere - AI Music Video Generator
+# Lumiere - AI Music Video Generator 🎥
 
 An AI-driven music video generator that transforms your music into stunning visual experiences using **local AI models** that run on consumer hardware.
 
-## Overview
+## Overview 🧭
 
 Lumiere uses a sophisticated AI pipeline to create music videos:
 
@@ -12,18 +12,18 @@ Lumiere uses a sophisticated AI pipeline to create music videos:
 4. **Animation**: AI animates between keyframes with smooth transitions
 5. **Final Composition**: Combines all segments into a complete music video
 
-## Features
+## Features ✨
 
-### Core Features
-- 🎵 **Real Audio Analysis**: Uses librosa to detect tempo, beats, and intensity patterns
+### Core Features 🔧
+- 🎵 **Audio Analysis**: Uses librosa to detect tempo, beats, and intensity patterns
 - 🎨 **Local AI Image Generation**: Stable Diffusion v1.5 running on your hardware
-- 🎬 **Local AI Video Animation**: Stable Video Diffusion with frame interpolation fallback
+- 🎬 **Local AI Video Animation**: LTX-Video model with frame interpolation fallback
 - 💻 **Consumer Hardware**: Optimized for CUDA (NVIDIA) and Metal (Apple Silicon)
 - 🚀 **CPU Fallback**: Works on any hardware with graceful degradation
 - 👤 **Character Consistency**: Optional character images for consistent character generation
 - 🔄 **RESTful API**: Easy integration with web and mobile applications
 
-### Enhanced Features (New!)
+### Enhanced Features (New!) 🚀
 - 🎼 **Beat Detection & Audio Analysis**: Precise beat and downbeat timestamps for perfect sync
 - 🎬 **Automatic Transition Parameters**: Smart selection of cuts, fades, and camera movements
 - 📊 **Variable Seed Density**: More visual cuts in high-energy sections, fewer in calm parts
@@ -33,9 +33,9 @@ Lumiere uses a sophisticated AI pipeline to create music videos:
 
 See [FEATURES.md](FEATURES.md) for detailed documentation on all enhanced features.
 
-## Installation
+## Installation 🛠️
 
-### Prerequisites
+### Prerequisites 📋
 
 - Go 1.21 or higher
 - Python 3.8+ (for AI services)
@@ -43,7 +43,7 @@ See [FEATURES.md](FEATURES.md) for detailed documentation on all enhanced featur
 - OR Apple Silicon Mac (Metal support)
 - OR CPU only (works but slower)
 
-### Quick Start
+### Quick Start ⚡
 
 ```bash
 git clone https://github.com/TheApeMachine/lumiere.git
@@ -57,7 +57,7 @@ go build -o lumiere .
 ./setup-ai-services.sh
 ```
 
-### Option 1: Docker Compose (Easiest)
+### Option 1: Docker Compose (Easiest) 🐳
 
 ```bash
 # Start all services including AI models
@@ -67,7 +67,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### Option 2: Manual Setup
+### Option 2: Manual Setup 🧰
 
 ```bash
 # Terminal 1: Start AI services
@@ -80,9 +80,9 @@ python services/audio-analyzer/server.py &
 USE_AI_SERVICES=true ./lumiere
 ```
 
-## Usage
+## Usage ▶️
 
-### Starting the Server
+### Starting the Server 🟢
 
 **With AI Services (Recommended):**
 ```bash
@@ -96,11 +96,11 @@ USE_AI_SERVICES=true ./lumiere
 
 The server will start on port 8080 (configurable via `PORT` environment variable).
 
-### Environment Variables
+### Environment Variables ⚙️
 
-#### Main Server
+#### Main Server 🖥️
 - `PORT`: Server port (default: 8080)
-- `USE_AI_SERVICES`: Enable local AI models (default: false)
+- `USE_AI_SERVICES`: Enable local AI models (default: true)
 - `IMAGE_SERVICE_URL`: Image service URL (default: http://localhost:5001)
 - `VIDEO_SERVICE_URL`: Video service URL (default: http://localhost:5002)
 - `AUDIO_SERVICE_URL`: Audio service URL (default: http://localhost:5003)
@@ -111,20 +111,20 @@ The server will start on port 8080 (configurable via `PORT` environment variable
 - `VISUAL_SEEDING_ENABLED`: Enable visual seeding (default: true)
 - `ANIMATION_ENABLED`: Enable animation (default: true)
 
-#### AI Services
+#### AI Services 🤖
 - `IMAGE_SERVICE_PORT`: Image generator port (default: 5001)
 - `VIDEO_SERVICE_PORT`: Video generator port (default: 5002)
 - `AUDIO_SERVICE_PORT`: Audio analyzer port (default: 5003)
 
-### API Endpoints
+### API Endpoints 🔗
 
-#### Health Check
+#### Health Check 🩺
 
 ```bash
 curl http://localhost:8080/health
 ```
 
-#### Create Project
+#### Create Project 🆕
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/projects \
@@ -146,19 +146,19 @@ Response:
 }
 ```
 
-#### Get Project Status
+#### Get Project Status 📊
 
 ```bash
 curl http://localhost:8080/api/v1/projects/{project-id}
 ```
 
-#### List All Projects
+#### List All Projects 📋
 
 ```bash
 curl http://localhost:8080/api/v1/projects
 ```
 
-#### Process Project
+#### Process Project ⚙️
 
 Start the AI pipeline for a project:
 
@@ -166,16 +166,16 @@ Start the AI pipeline for a project:
 curl -X POST http://localhost:8080/api/v1/projects/{project-id}/process
 ```
 
-## Hardware Requirements
+## Hardware Requirements 🖥️
 
-### Minimum (CPU Only)
+### Minimum (CPU Only) 🧠
 - **CPU**: Any modern CPU
 - **RAM**: 8GB
 - **Disk**: 10GB free space
 - **Speed**: ~60s per image, frame interpolation for video
 - **Use Case**: Testing and development
 
-### Recommended (GPU Acceleration)
+### Recommended (GPU Acceleration) ⚡
 - **GPU**: NVIDIA GPU with 4GB+ VRAM (CUDA 11+)
   - OR Apple Silicon (M1/M2/M3 with Metal)
 - **RAM**: 16GB
@@ -183,16 +183,16 @@ curl -X POST http://localhost:8080/api/v1/projects/{project-id}/process
 - **Speed**: ~3s per image, ~30-60s per video segment
 - **Use Case**: Production use
 
-### Optimal (High Performance)
+### Optimal (High Performance) 🚀
 - **GPU**: NVIDIA GPU with 8GB+ VRAM
 - **RAM**: 32GB
 - **Disk**: 20GB free space
 - **Speed**: ~2s per image, ~20-30s per video segment
 - **Use Case**: High-volume production
 
-## Pipeline Architecture
+## Pipeline Architecture 🏗️
 
-### 1. Concept Generation (Audio Analyzer Service)
+### 1. Concept Generation (Audio Analyzer Service) 🎼
 
 **Technology**: librosa (Python)
 
@@ -203,7 +203,7 @@ The AI analyzes the audio file to:
 - Select 7 strategic key moments throughout the song
 - Generate creative visual prompts for each moment
 
-### 2. Visual Seeding (Image Generator Service)
+### 2. Visual Seeding (Image Generator Service) 🖼️
 
 **Technology**: Stable Diffusion v1.5
 
@@ -214,7 +214,7 @@ For each key moment, the AI generates:
 - Scene composition based on music intensity
 - ~20 inference steps for fast generation
 
-### 3. Animation (Video Generator Service)
+### 3. Animation (Video Generator Service) 🎞️
 
 **Technology**: Stable Video Diffusion / Frame Interpolation
 
@@ -225,7 +225,7 @@ The AI creates:
 - GPU-accelerated when available
 - CPU fallback with simple interpolation
 
-### 4. Composition
+### 4. Composition 🎛️
 
 Final video assembly:
 - Concatenates all animation segments
@@ -233,7 +233,7 @@ Final video assembly:
 - Applies timing synchronization
 - Exports in MP4 format
 
-## Project Structure
+## Project Structure 🗂️
 
 ```
 lumiere/
@@ -251,9 +251,9 @@ lumiere/
     └── api.go
 ```
 
-## Integration Notes
+## Integration Notes 🔌
 
-### Current Implementation
+### Current Implementation 📦
 
 This is a **framework implementation** that provides:
 - Complete API structure
@@ -261,7 +261,7 @@ This is a **framework implementation** that provides:
 - Data models and workflows
 - File management
 
-### Production Integration
+### Production Integration 🏭
 
 For production use, integrate with:
 
@@ -284,33 +284,37 @@ For production use, integrate with:
 - FFmpeg for video concatenation
 - Video editing libraries
 
-## Development
+## Development 🧑‍💻
 
-### Running Tests
+### Running Tests 🧪
 
 ```bash
 go test ./...
 ```
 
-### Code Formatting
+### Code Formatting 🧹
 
 ```bash
 go fmt ./...
 ```
 
-## Contributing
+## Contributing 🤝
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## License
+## License 📄
 
 MIT License
 
-## Roadmap
+## Roadmap 🗺️
 
-- [ ] Integrate actual AI image generation APIs
-- [ ] Integrate actual AI video generation APIs
-- [ ] Add audio analysis with beat detection
+- [ ] Integrate actual AI image generation
+      - [x] Local image generation
+      - [ ] Remote service image generation
+- [ ] Integrate actual AI video generation
+      - [x] Local video generation
+      - [ ] Remote service video generation
+- [x] Add audio analysis with beat detection
 - [ ] Implement lyrics extraction
 - [ ] Add web UI for easier interaction
 - [ ] Support multiple video styles

@@ -60,7 +60,7 @@ def analyze_audio():
         
         for t in np.arange(0, duration, 1.0):
             idx = np.argmin(np.abs(times - t))
-            intensity = float(onset_env[idx])
+            intensity = onset_env[idx].item() if hasattr(onset_env[idx], 'item') else float(onset_env[idx])
             # Normalize to 0-1 range
             intensity_normalized = min(1.0, intensity / 10.0)
             intensity_curve.append({
@@ -92,7 +92,7 @@ def analyze_audio():
         result = {
             'duration': float(duration),
             'sample_rate': int(sr),
-            'tempo': float(tempo),
+            'tempo': float(tempo.item()) if hasattr(tempo, 'item') else float(tempo),
             'beat_times': [float(t) for t in beat_times.tolist()[:50]],  # First 50 beats
             'num_beats': len(beat_times),
             'intensity_curve': intensity_curve,
@@ -104,7 +104,8 @@ def analyze_audio():
             }
         }
         
-        logger.info(f"Analysis complete: tempo={tempo:.1f} BPM, {len(key_moments)} key moments")
+        tempo_value = tempo.item() if hasattr(tempo, 'item') else float(tempo)
+        logger.info(f"Analysis complete: tempo={tempo_value:.1f} BPM, {len(key_moments)} key moments")
         
         return jsonify({
             'success': True,
@@ -142,7 +143,7 @@ def select_key_moments(duration, peak_times, intensity_curve):
             
             # Only use peak if it's within 10 seconds of target
             if distances[nearest_idx] < 10.0:
-                timestamp = float(peak_times[nearest_idx])
+                timestamp = peak_times[nearest_idx].item() if hasattr(peak_times[nearest_idx], 'item') else float(peak_times[nearest_idx])
             else:
                 timestamp = target_time
         else:
@@ -153,9 +154,9 @@ def select_key_moments(duration, peak_times, intensity_curve):
         intensity = intensity_curve[intensity_idx]['value'] if intensity_idx < len(intensity_curve) else 0.5
         
         key_moments.append({
-            'timestamp': timestamp,
+            'timestamp': float(timestamp),
             'description': descriptions[i],
-            'intensity': intensity
+            'intensity': float(intensity)
         })
     
     return key_moments

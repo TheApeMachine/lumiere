@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Video Generation Service using Stable Video Diffusion
+Video Generation Service using LTX-Video
 Supports both CUDA and Metal (MPS) acceleration for consumer hardware
 """
 
@@ -8,12 +8,20 @@ import os
 import torch
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from diffusers import StableVideoDiffusionPipeline
-from diffusers.utils import load_image, export_to_video
 from PIL import Image
 import logging
 import cv2
 import numpy as np
+
+# Try to import LTX-Video (Diffusers integration)
+try:
+    from diffusers import LTXConditionPipeline
+    from diffusers.utils import export_to_video, load_image
+    LTX_AVAILABLE = True
+except ImportError:
+    LTX_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("LTX-Video not available, falling back to interpolation")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,44 +44,51 @@ def get_device():
         return "cpu"
 
 def initialize_pipeline():
-    """Initialize Stable Video Diffusion pipeline with appropriate device"""
+    """Initialize LTX-Video pipeline with appropriate device"""
     global pipeline, device
     
     device = get_device()
-    logger.info(f"Initializing Stable Video Diffusion on device: {device}")
-    
-    # Use Stable Video Diffusion model
-    # This is a smaller model suitable for consumer hardware
-    model_id = "stabilityai/stable-video-diffusion-img2vid-xt"
+    logger.info(f"Initializing LTX-Video pipeline on device: {device}")
     
     try:
-        # Note: SVD requires significant VRAM, fallback to simple interpolation on CPU/limited VRAM
         if device == "cpu":
-            logger.warning("CPU detected - will use simple frame interpolation instead of full SVD")
+            logger.warning("CPU detected - will use frame interpolation instead of AI models")
             return True
+                
+        # Use LTX-Video model (this will auto-download from HuggingFace)
+        model_id = "Lightricks/LTX-Video"  # Use the dev version as you suggested
         
-        pipeline = StableVideoDiffusionPipeline.from_pretrained(
+        logger.info(f"Downloading LTX-Video model: {model_id}")
+        logger.info("This may take several minutes on first run...")
+        
+        pipeline = LTXConditionPipeline.from_pretrained(
             model_id,
-            torch_dtype=torch.float16 if device in ["cuda", "mps"] else torch.float32,
+            torch_dtype=torch.bfloat16 if device in ["cuda", "mps"] else torch.float32,
         )
         
-        # Move to device
         pipeline = pipeline.to(device)
         
-        # Enable attention slicing for memory efficiency
-        pipeline.enable_attention_slicing()
+        # Enable memory optimizations
+        pipeline.vae.enable_tiling()
         
-        logger.info("Pipeline initialized successfully")
+        # Enable CPU offload for CUDA to save VRAM
+        if device == "cuda":
+            try:
+                pipeline.enable_model_cpu_offload()
+            except Exception as e:
+                logger.warning(f"Could not enable CPU offload: {e}")
+        
+        logger.info("LTX-Video pipeline initialized successfully")
         return True
         
     except Exception as e:
-        logger.error(f"Failed to initialize full pipeline: {e}")
-        logger.info("Falling back to simple interpolation mode")
-        return True  # Continue anyway with interpolation fallback
+        logger.error(f"Failed to initialize LTX-Video pipeline: {e}")
+        logger.info("Falling back to interpolation mode")
+        return True
 
 def simple_interpolate_frames(start_frame_path, end_frame_path, output_path, num_frames=14, fps=7):
-    """Simple frame interpolation when AI model is not available"""
-    logger.info("Using simple linear interpolation for video generation")
+    """Enhanced frame interpolation with smooth transitions"""
+    logger.info("Using enhanced interpolation for video generation")
     
     # Load images
     start_img = cv2.imread(start_frame_path)
@@ -88,14 +103,37 @@ def simple_interpolate_frames(start_frame_path, end_frame_path, output_path, num
     
     height, width = start_img.shape[:2]
     
-    # Create video writer
+    # Create video writer with better codec
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
-    # Generate interpolated frames
+    # Generate interpolated frames with smooth easing
     for i in range(num_frames):
-        alpha = i / (num_frames - 1)
+        # Use smooth easing instead of linear interpolation
+        t = i / (num_frames - 1)
+        # Smooth step function for more natural transitions
+        alpha = t * t * (3.0 - 2.0 * t)  # smoothstep
+        
+        # Basic blend
         frame = cv2.addWeighted(start_img, 1 - alpha, end_img, alpha, 0)
+        
+        # Add subtle zoom effect for more dynamic feel
+        if i < num_frames // 2:
+            # Slight zoom in during first half
+            zoom_factor = 1.0 + (alpha * 0.05)  # Max 5% zoom
+        else:
+            # Slight zoom out during second half  
+            zoom_factor = 1.05 - ((alpha - 0.5) * 0.05)
+        
+        if zoom_factor != 1.0:
+            h_new, w_new = int(height * zoom_factor), int(width * zoom_factor)
+            frame_zoomed = cv2.resize(frame, (w_new, h_new))
+            
+            # Center crop back to original size
+            y_start = (h_new - height) // 2
+            x_start = (w_new - width) // 2
+            frame = frame_zoomed[y_start:y_start+height, x_start:x_start+width]
+        
         out.write(frame)
     
     out.release()
@@ -109,7 +147,8 @@ def health():
         'status': 'healthy',
         'device': device,
         'pipeline_loaded': pipeline is not None,
-        'mode': 'ai' if pipeline else 'interpolation'
+        'ltx_available': LTX_AVAILABLE,
+        'mode': 'ltx-video' if (pipeline and LTX_AVAILABLE) else 'interpolation'
     })
 
 @app.route('/generate', methods=['POST'])
@@ -172,20 +211,54 @@ def generate_video():
         return jsonify({'error': str(e)}), 500
 
 def generate_with_ai(start_frame_path, end_frame_path, output_path, num_frames, fps):
-    """Generate video using AI model"""
-    logger.info("Using AI model for video generation")
+    """Generate video using LTX-Video model"""
+    logger.info("Using LTX-Video model for video generation")
+    
+    if not LTX_AVAILABLE or pipeline is None:
+        raise Exception("LTX-Video pipeline not available")
     
     # Load start frame
     image = load_image(start_frame_path)
-    image = image.resize((512, 512))
     
-    # Generate frames
+    # LTX-Video works best with resolutions divisible by 32
+    # Keep it reasonable for consumer hardware
+    target_width, target_height = 512, 512
+    image = image.resize((target_width, target_height))
+    
+    # LTX-Video works with frames divisible by 8 + 1
+    # Adjust num_frames to fit this requirement
+    adjusted_frames = ((num_frames - 1) // 8) * 8 + 1
+    if adjusted_frames < 9:
+        adjusted_frames = 9  # Minimum
+    if adjusted_frames > 25:
+        adjusted_frames = 25  # Keep it reasonable for speed
+    
+    # Create a simple prompt based on the transition
+    prompt = "smooth cinematic transition, high quality, detailed"
+    negative_prompt = "blurry, low quality, distorted, jittery, inconsistent motion"
+    
+    # Generate video with LTX-Video
     with torch.inference_mode():
-        frames = pipeline(
-            image,
-            num_frames=num_frames,
-            decode_chunk_size=8
-        ).frames[0]
+        from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+        from diffusers.utils import load_video
+        
+        # Convert image to video format for conditioning
+        video = load_video(export_to_video([image], fps=fps))
+        condition = LTXVideoCondition(video=video, frame_index=0)
+        
+        result = pipeline(
+            conditions=[condition],
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            width=target_width,
+            height=target_height,
+            num_frames=adjusted_frames,
+            num_inference_steps=10,  # Fast generation
+            generator=torch.Generator(device=device).manual_seed(42),
+            output_type="pil"
+        )
+        
+        frames = result.frames[0]
     
     # Export to video
     export_to_video(frames, output_path, fps=fps)

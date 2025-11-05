@@ -22,6 +22,12 @@ This directory contains Python-based AI services that run locally on consumer ha
 - **Hardware**: CPU (no GPU required)
 - **Port**: 5003
 
+### 4. Creative Director (`creative-director/`)
+- **Stack**: OpenAI Agents SDK + Flask
+- **Purpose**: Produces story-first, evolving prompts (Director→Writer→DoP flow), maintains character continuity via reference images
+- **Hardware**: CPU
+- **Port**: 7005
+
 ## Hardware Support
 
 ### NVIDIA GPUs (CUDA)
@@ -148,6 +154,46 @@ curl -X POST http://localhost:5003/analyze \
     "audio_path": "/path/to/audio.mp3"
   }'
 ```
+
+### Creative Director
+
+**Health Check**
+```bash
+curl http://localhost:7005/healthz
+```
+
+**Seed Image Prompts (story-first, optional guidance, characters)**
+```bash
+curl -X POST http://localhost:7005/v1/seed_prompts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "abc123",
+    "audio_summary": { "bpm": 120, "beats": [0,0.5,1.0,1.5] },
+    "concept": {
+      "title": "Neon City",
+      "characters": [
+        {"id": "char_0", "reference_images": ["uploads/abc123/character_0.png"]}
+      ]
+    },
+    "num_variations": 6
+  }'
+```
+
+**Video Prompt Segments**
+```bash
+curl -X POST http://localhost:7005/v1/video_prompts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "abc123",
+    "audio_summary": { "bpm": 120, "beats": [0,0.5,1.0,1.5] },
+    "concept": { "title": "Neon City" },
+    "beat_map": [0,0.5,1.0,1.5]
+  }'
+```
+
+Notes:
+- If mood/style/theme are omitted, the service infers them and returns the chosen values in `concept_final`.
+- Characters are optional; when provided, their `reference_images` are propagated to prompts to preserve identity.
 
 ## Model Information
 

@@ -181,13 +181,11 @@ func (vs *AIVisualSeeder) GenerateImageWithParams(prompt, outputPath string, cus
 		"width":               512,
 		"height":              512,
 	}
-	
-	// Override with custom parameters if provided
-	if customParams != nil {
-		for k, v := range customParams {
-			reqData[k] = v
-		}
-	}
+
+    // Override with custom parameters if provided
+    for k, v := range customParams {
+        reqData[k] = v
+    }
 
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
@@ -282,13 +280,11 @@ func (a *AIAnimator) GenerateAnimationWithParams(startFrame, endFrame, outputPat
 		"num_frames":  numFrames,
 		"fps":         int(fps),
 	}
-	
-	// Override with custom parameters if provided
-	if customParams != nil {
-		for k, v := range customParams {
-			reqData[k] = v
-		}
-	}
+
+    // Override with custom parameters if provided
+    for k, v := range customParams {
+        reqData[k] = v
+    }
 
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {

@@ -11,6 +11,7 @@ from flask_cors import CORS
 from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
 from PIL import Image
 import logging
+import numpy as np
 from pathlib import Path
 
 # Configure logging
@@ -45,10 +46,15 @@ def initialize_pipeline():
     model_id = "runwayml/stable-diffusion-v1-5"
     
     try:
+        # For MPS (Apple Silicon), use float32 to avoid potential issues
+        dtype = torch.float32 if device == "mps" else (torch.float16 if device == "cuda" else torch.float32)
+        logger.info(f"Using dtype: {dtype}")
+        
         pipeline = StableDiffusionPipeline.from_pretrained(
             model_id,
-            torch_dtype=torch.float16 if device in ["cuda", "mps"] else torch.float32,
+            torch_dtype=dtype,
             safety_checker=None,  # Disable for faster generation
+            requires_safety_checker=False,
         )
         
         # Use DPM solver for faster generation
@@ -62,14 +68,33 @@ def initialize_pipeline():
         # Enable attention slicing for memory efficiency
         pipeline.enable_attention_slicing()
         
-        # Enable CPU offload for large models on limited VRAM
+        # For MPS, don't use CPU offload as it can cause issues
         if device == "cuda":
             try:
                 pipeline.enable_model_cpu_offload()
             except Exception as e:
                 logger.warning(f"Could not enable CPU offload: {e}")
         
-        logger.info("Pipeline initialized successfully")
+        # Test the pipeline with a simple generation
+        logger.info("Testing pipeline with simple generation...")
+        with torch.inference_mode():
+            test_result = pipeline(
+                "a simple red apple",
+                num_inference_steps=10,
+                width=256,
+                height=256,
+                generator=torch.Generator(device=device).manual_seed(42)
+            )
+        
+        test_image = test_result.images[0]
+        test_array = np.array(test_image)
+        logger.info(f"Test image stats: min={test_array.min()}, max={test_array.max()}, mean={test_array.mean():.2f}")
+        
+        if test_array.max() == 0:
+            logger.error("Test generation failed - pipeline producing black images")
+            return False
+        
+        logger.info("Pipeline initialized and tested successfully")
         return True
         
     except Exception as e:
@@ -112,24 +137,18 @@ def generate_image():
         if seed is not None:
             generator = torch.Generator(device=device).manual_seed(seed)
         
-        # Generate image
-        with torch.inference_mode():
-            result = pipeline(
+        # Use internal generation method
+        if output_path:
+            generate_image_internal(
                 prompt=prompt,
+                output_path=output_path,
                 negative_prompt=negative_prompt,
                 num_inference_steps=num_inference_steps,
                 guidance_scale=guidance_scale,
                 width=width,
                 height=height,
-                generator=generator
+                seed=seed
             )
-        
-        image = result.images[0]
-        
-        # Save image
-        if output_path:
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            image.save(output_path)
             logger.info(f"Image saved to: {output_path}")
             return jsonify({
                 'success': True,
@@ -195,7 +214,7 @@ def generate_batch():
         return jsonify({'error': str(e)}), 500
 
 def generate_image_internal(prompt, output_path, **kwargs):
-    """Internal function for image generation"""
+    """Internal function for image generation with enhanced debugging and retry logic"""
     negative_prompt = kwargs.get('negative_prompt', 'blurry, low quality, distorted')
     num_inference_steps = kwargs.get('num_inference_steps', 20)
     guidance_scale = kwargs.get('guidance_scale', 7.5)
@@ -207,6 +226,7 @@ def generate_image_internal(prompt, output_path, **kwargs):
     if seed is not None:
         generator = torch.Generator(device=device).manual_seed(seed)
     
+    # Generate image
     with torch.inference_mode():
         result = pipeline(
             prompt=prompt,
@@ -219,6 +239,38 @@ def generate_image_internal(prompt, output_path, **kwargs):
         )
     
     image = result.images[0]
+    
+    # Debug: Check image properties
+    img_array = np.array(image)
+    logger.info(f"Generated image stats: shape={img_array.shape}, min={img_array.min()}, max={img_array.max()}, mean={img_array.mean():.2f}")
+    
+    # Check for completely black images
+    if img_array.max() == 0:
+        logger.error("Generated image is completely black! This indicates a model issue.")
+        # Try to regenerate with different parameters
+        logger.info("Attempting regeneration with modified parameters...")
+        with torch.inference_mode():
+            result = pipeline(
+                prompt=f"high quality, detailed, {prompt}",
+                negative_prompt=f"{negative_prompt}, black image, dark",
+                num_inference_steps=25,  # More steps
+                guidance_scale=8.0,  # Higher guidance
+                width=width,
+                height=height,
+                generator=torch.Generator(device=device).manual_seed(42) if generator is None else generator
+            )
+        image = result.images[0]
+        img_array = np.array(image)
+        logger.info(f"Retry image stats: shape={img_array.shape}, min={img_array.min()}, max={img_array.max()}, mean={img_array.mean():.2f}")
+    
+    # Ensure image has valid pixel values
+    if np.any(np.isnan(img_array)) or np.any(np.isinf(img_array)):
+        logger.warning("Generated image contains invalid values, clipping to valid range")
+        img_array = np.nan_to_num(img_array, nan=128.0, posinf=255.0, neginf=0.0)
+        img_array = np.clip(img_array, 0, 255).astype(np.uint8)
+        from PIL import Image as PILImage
+        image = PILImage.fromarray(img_array)
+    
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     image.save(output_path)
     
