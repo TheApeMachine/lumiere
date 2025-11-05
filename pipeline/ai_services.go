@@ -91,8 +91,8 @@ func (cg *AIConceptGenerator) Generate(audioPath, userPrompt string) (*models.Co
 	var result struct {
 		Success  bool `json:"success"`
 		Analysis struct {
-			Duration       float64 `json:"duration"`
-			Tempo          float64 `json:"tempo"`
+			Duration       float64                 `json:"duration"`
+			Tempo          float64                 `json:"tempo"`
 			IntensityCurve []models.IntensityPoint `json:"intensity_curve"`
 			KeyMoments     []struct {
 				Timestamp   float64 `json:"timestamp"`
@@ -127,10 +127,10 @@ func (cg *AIConceptGenerator) Generate(audioPath, userPrompt string) (*models.Co
 		Intensity:   result.Analysis.IntensityCurve,
 		Lyrics:      []models.LyricSegment{},
 		Metadata: map[string]interface{}{
-			"duration":    result.Analysis.Duration,
-			"tempo":       result.Analysis.Tempo,
+			"duration":     result.Analysis.Duration,
+			"tempo":        result.Analysis.Tempo,
 			"generated_at": time.Now().Format(time.RFC3339),
-			"user_prompt": userPrompt,
+			"user_prompt":  userPrompt,
 		},
 	}
 
@@ -182,10 +182,10 @@ func (vs *AIVisualSeeder) GenerateImageWithParams(prompt, outputPath string, cus
 		"height":              512,
 	}
 
-    // Override with custom parameters if provided
-    for k, v := range customParams {
-        reqData[k] = v
-    }
+	// Override with custom parameters if provided
+	for k, v := range customParams {
+		reqData[k] = v
+	}
 
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {
@@ -281,10 +281,10 @@ func (a *AIAnimator) GenerateAnimationWithParams(startFrame, endFrame, outputPat
 		"fps":         int(fps),
 	}
 
-    // Override with custom parameters if provided
-    for k, v := range customParams {
-        reqData[k] = v
-    }
+	// Override with custom parameters if provided
+	for k, v := range customParams {
+		reqData[k] = v
+	}
 
 	jsonData, err := json.Marshal(reqData)
 	if err != nil {

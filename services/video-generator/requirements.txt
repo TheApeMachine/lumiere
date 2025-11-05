@@ -4,8 +4,7 @@
 # Core dependencies
 torch>=2.1.2
 torchvision>=0.16.0
-# Install latest diffusers with LTX-Video support
-git+https://github.com/huggingface/diffusers
+diffusers>=0.35.2
 transformers>=4.35.0
 accelerate>=0.25.0
 safetensors>=0.4.0

@@ -130,12 +130,12 @@ func (s *Server) createProject(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save audio file"})
 		return
 	}
+	defer out.Close()
 	if _, err := io.Copy(out, file); err != nil {
-		out.Close()
+		_ = os.Remove(audioPath)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write audio file"})
 		return
 	}
-	out.Close()
 	project.AudioFile = audioPath
 
 	// Handle optional character images
@@ -148,28 +148,35 @@ func (s *Server) createProject(c *gin.Context) {
 			if err != nil {
 				continue
 			}
-			defer file.Close()
 
 			// Validate image content type
 			buf := make([]byte, 512)
 			_, _ = file.Read(buf)
 			imgType := http.DetectContentType(buf)
 			if imgType[:5] != "image" {
+				file.Close()
 				continue
 			}
 			if _, err := file.Seek(0, 0); err != nil {
+				file.Close()
 				continue
 			}
 
 			outFile, err := os.Create(imagePath)
 			if err != nil {
+				file.Close()
 				continue
 			}
-			defer outFile.Close()
 
 			if _, err := io.Copy(outFile, file); err != nil {
+				outFile.Close()
+				file.Close()
 				continue
 			}
+
+			// Close files explicitly at end of iteration
+			_ = outFile.Close()
+			_ = file.Close()
 
 			project.CharacterImages = append(project.CharacterImages, imagePath)
 		}

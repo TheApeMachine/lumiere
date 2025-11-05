@@ -25,8 +25,8 @@ type VisualSeeder struct {
 func NewVisualSeeder(outputDir string) *VisualSeeder {
 	return &VisualSeeder{
 		outputDir:              outputDir,
-		baseSeedDensity:        2.0,  // 2 seeds per minute by default
-		intensityMultiplier:    2.0,  // Up to 2x more seeds at maximum intensity
+		baseSeedDensity:        2.0, // 2 seeds per minute by default
+		intensityMultiplier:    2.0, // Up to 2x more seeds at maximum intensity
 		enableFacePreservation: true,
 		enableQualityControl:   true,
 		minQualityScore:        0.5,

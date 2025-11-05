@@ -67,8 +67,8 @@ func (a *Animator) GenerateAnimations(projectID string, seeds []models.VisualSee
 		videoPath := filepath.Join(projectDir, fmt.Sprintf("anim_%d_%s.mp4", i, animID))
 		duration := nextSeed.Timestamp - currentSeed.Timestamp
 
-    // Determine transition parameters based on seed metadata and duration
-    transitionStyle, motionIntensity, cameraMove := a.determineAnimationStyle(duration)
+		// Determine transition parameters based on seed metadata and duration
+		transitionStyle, motionIntensity, cameraMove := a.determineAnimationStyle(duration)
 
 		// Build generation parameters
 		genParams := map[string]interface{}{
