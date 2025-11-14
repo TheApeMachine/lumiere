@@ -2,25 +2,29 @@
 # Supports both CUDA and Metal (MPS) acceleration
 
 # Core dependencies
-torch>=2.0.0
-torchvision>=0.15.0
-diffusers>=0.25.0
-transformers>=4.35.0
-accelerate>=0.25.0
-safetensors>=0.4.0
+# Updated for Python 3.14 compatibility (PyTorch 2.5.1 only supports Python 3.9-3.12)
+torch==2.9.1
+torchvision==0.24.1
+diffusers>=0.35.2
+transformers>=4.57.1
+accelerate>=1.11.0
+safetensors>=0.6.2
 
 # Video processing
-opencv-python>=4.8.0
-imageio>=2.31.0
-imageio-ffmpeg>=0.4.9
+opencv-python>=4.12.0.88
+scipy>=1.14.1
+imageio>=2.37.2
+imageio-ffmpeg>=0.6.0
 
 # Image processing
-Pillow>=10.0.0
+pillow>=12.0.0
 
 # API server
-flask>=3.0.0
-flask-cors>=4.0.0
+flask>=3.1.2
+flask-cors>=6.0.1
 
 # Utilities
-numpy>=1.24.0
-tqdm>=4.66.0
+numpy>=2,<2.3.0
+tqdm>=4.67.1
+sentencepiece>=0.2.1
+pydantic

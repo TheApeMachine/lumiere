@@ -10,10 +10,10 @@ type Project struct {
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	
+
 	// Optional character images
 	CharacterImages []string `json:"character_images,omitempty"`
-	
+
 	// Pipeline outputs
 	Concept      *Concept      `json:"concept,omitempty"`
 	VisualSeeds  []VisualSeed  `json:"visual_seeds,omitempty"`
@@ -23,12 +23,17 @@ type Project struct {
 
 // Concept represents the AI-generated video concept
 type Concept struct {
-	Description   string                 `json:"description"`
-	KeyMoments    []KeyMoment            `json:"key_moments"`
-	Intensity     []IntensityPoint       `json:"intensity"`
-	Lyrics        []LyricSegment         `json:"lyrics,omitempty"`
-	AudioAnalysis *AudioAnalysis         `json:"audio_analysis,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+    Description   string                 `json:"description"`
+    KeyMoments    []KeyMoment            `json:"key_moments"`
+    Intensity     []IntensityPoint       `json:"intensity"`
+    Lyrics        []LyricSegment         `json:"lyrics,omitempty"`
+    AudioAnalysis *AudioAnalysis         `json:"audio_analysis,omitempty"`
+    Metadata      map[string]interface{} `json:"metadata,omitempty"`
+    // Creative Director additions
+    Theme         string                 `json:"theme,omitempty"`
+    Mood          string                 `json:"mood,omitempty"`
+    VisualStyle   string                 `json:"visual_style,omitempty"`
+    Characters    []Character            `json:"characters,omitempty"`
 }
 
 // AudioAnalysis contains detailed audio analysis results
@@ -93,6 +98,16 @@ type Animation struct {
 	QualityScore     float64           `json:"quality_score,omitempty"`     // 0-1 score for video quality
 	ValidationStatus string            `json:"validation_status,omitempty"` // Validation result
 	GenerationParams map[string]interface{} `json:"generation_params,omitempty"` // Parameters used for generation
+}
+
+// Character represents an actor/identity to maintain across prompts
+type Character struct {
+    ID              string   `json:"id"`
+    Name            string   `json:"name,omitempty"`
+    Role            string   `json:"role,omitempty"`
+    Descriptors     []string `json:"descriptors,omitempty"`
+    ReferenceImages []string `json:"reference_images,omitempty"`
+    IdentityToken   string   `json:"identity_token,omitempty"`
 }
 
 // UploadRequest represents the initial upload request

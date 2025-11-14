@@ -1,0 +1,36 @@
+# Creative Director Service Requirements
+# Multi-agent system for music video concept development
+
+# Local LLM Support - Use transformers (default, more reliable)
+transformers>=4.57.1
+torch>=2.9.1  # Already required by other services, but ensure it's here
+huggingface-hub>=0.20.0  # For automatic model downloading
+accelerate>=0.20.0  # Required for device_map="auto" in transformers
+
+# Optional: llama-cpp-python for GGUF models (only if you want to use GGUF)
+# llama-cpp-python>=0.2.0  # Uncomment if you want GGUF support
+
+# OpenAI Agent SDK (fallback if local LLM not available)
+# openai-agents>=0.5.0  # Commented out for fully local setup
+
+# Core dependencies
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# API server
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Audio analysis
+librosa>=0.11.0
+scipy>=1.14.1
+soundfile>=0.13.1
+
+# Advanced audio analysis (optional)
+essentia>=2.1b6.dev1389
+tensorflow>=2.15.0
+transformers>=4.57.1
+
+# Utilities
+numpy>=2,<2.3.0
+logging>=0.4.9.6
