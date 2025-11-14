@@ -17,42 +17,35 @@ type Pipeline struct {
 	visualSeeder     *VisualSeeder
 	animator         *Animator
 	aiServiceConfig  *AIServiceConfig
-	useAI            bool
 }
 
 // NewPipeline creates a new pipeline instance
 func NewPipeline(cfg *config.Config) *Pipeline {
-	// Check if AI services should be used
-	useAI := os.Getenv("USE_AI_SERVICES") == "true"
-
 	return &Pipeline{
 		config:           cfg,
 		conceptGenerator: NewConceptGenerator(),
 		visualSeeder:     NewVisualSeederWithConfig(cfg.OutputDir, cfg),
 		animator:         NewAnimatorWithConfig(cfg.OutputDir, cfg),
 		aiServiceConfig:  DefaultAIServiceConfig(),
-		useAI:            useAI,
 	}
 }
 
 // Process runs the complete pipeline for a project
 func (p *Pipeline) Process(project *models.Project) (err error) {
-	log.Printf("Starting pipeline for project %s (AI services: %v)", project.ID, p.useAI)
+	log.Printf("Starting pipeline for project %s", project.ID)
+
+	// Abort early if video generator cannot actually generate (even if service is up)
+	if err := ensureVideoReady(p.aiServiceConfig); err != nil {
+		return fmt.Errorf("preflight failed: %w", err)
+	}
 
 	// Step 1: Concept Generation
 	if p.config.ConceptGenerationEnabled {
 		log.Printf("Step 1/3: Generating concept...")
 		var concept *models.Concept
 		var err error
-
-		if p.useAI {
-			// Try AI service first
-			aiGenerator := NewAIConceptGenerator(p.aiServiceConfig)
-			concept, err = aiGenerator.Generate(project.AudioFile, project.Prompt)
-		} else {
-			// Use simulation
-			concept, err = p.conceptGenerator.Generate(project.AudioFile, project.Prompt)
-		}
+		aiGenerator := NewAIConceptGenerator(p.aiServiceConfig)
+		concept, err = aiGenerator.Generate(project.AudioFile, project.Prompt)
 
 		if err != nil {
 			return fmt.Errorf("concept generation failed: %w", err)
@@ -67,13 +60,7 @@ func (p *Pipeline) Process(project *models.Project) (err error) {
 		log.Printf("Step 2/3: Generating visual seeds...")
 		var seeds []models.VisualSeed
 		var err error
-
-		if p.useAI {
-			// Use AI service for image generation
-			seeds, err = p.generateSeedsWithAI(project.ID, project.Concept, project.CharacterImages)
-		} else {
-			seeds, err = p.visualSeeder.GenerateSeeds(project.ID, project.Concept, project.CharacterImages)
-		}
+		seeds, err = p.generateSeedsWithAI(project.ID, project.Concept, project.CharacterImages, project.AudioFile)
 
 		if err != nil {
 			return fmt.Errorf("visual seeding failed: %w", err)
@@ -87,13 +74,7 @@ func (p *Pipeline) Process(project *models.Project) (err error) {
 	if p.config.AnimationEnabled && len(project.VisualSeeds) > 0 {
 		log.Printf("Step 3/3: Generating animations...")
 		var animations []models.Animation
-
-		if p.useAI {
-			// Use AI service for video generation
-			animations, err = p.generateAnimationsWithAI(project.ID, project.VisualSeeds, project.AudioFile)
-		} else {
-			animations, err = p.animator.GenerateAnimations(project.ID, project.VisualSeeds, project.AudioFile)
-		}
+		animations, err = p.generateAnimationsWithAI(project.ID, project.VisualSeeds, project.AudioFile, project.Concept)
 
 		if err != nil {
 			return fmt.Errorf("animation generation failed: %w", err)
@@ -106,14 +87,7 @@ func (p *Pipeline) Process(project *models.Project) (err error) {
 		log.Printf("Composing final video...")
 		var finalVideo string
 		var err error
-
-		if p.useAI {
-			// Use proper video composition with ffmpeg
-			finalVideo, err = p.composeVideoWithFFmpeg(project.ID, animations, project.AudioFile)
-		} else {
-			// Use placeholder composition
-			finalVideo, err = p.animator.ComposeVideo(project.ID, animations, project.AudioFile)
-		}
+		finalVideo, err = p.composeVideoWithFFmpeg(project.ID, animations, project.AudioFile)
 
 		if err != nil {
 			return fmt.Errorf("video composition failed: %w", err)
@@ -128,13 +102,11 @@ func (p *Pipeline) Process(project *models.Project) (err error) {
 }
 
 // generateSeedsWithAI generates visual seeds using AI service with creative director
-func (p *Pipeline) generateSeedsWithAI(projectID string, concept *models.Concept, characterImages []string) ([]models.VisualSeed, error) {
+func (p *Pipeline) generateSeedsWithAI(projectID string, concept *models.Concept, characterImages []string, audioPath string) ([]models.VisualSeed, error) {
 	// First, get enhanced concept from creative director
-	enhancedConcept, err := p.getEnhancedConceptFromCreativeDirector(projectID, concept, characterImages)
+	enhancedConcept, err := p.getEnhancedConceptFromCreativeDirector(projectID, concept, characterImages, audioPath)
 	if err != nil {
-		log.Printf("Warning: Could not enhance concept with creative director: %v", err)
-		// Fall back to original concept
-		enhancedConcept = concept
+		return nil, fmt.Errorf("creative director enhancement failed: %w", err)
 	}
 
 	aiSeeder := NewAIVisualSeeder(p.config.OutputDir, p.aiServiceConfig)
@@ -173,12 +145,23 @@ func (p *Pipeline) generateSeedsWithAI(projectID string, concept *models.Concept
 }
 
 // generateAnimationsWithAI generates animations using AI service
-func (p *Pipeline) generateAnimationsWithAI(projectID string, seeds []models.VisualSeed, _ string) ([]models.Animation, error) {
+func (p *Pipeline) generateAnimationsWithAI(projectID string, seeds []models.VisualSeed, audioPath string, concept *models.Concept) ([]models.Animation, error) {
 	aiAnimator := NewAIAnimator(p.config.OutputDir, p.aiServiceConfig)
 	animations := []models.Animation{}
 
 	projectDir := fmt.Sprintf("%s/%s/animations", p.config.OutputDir, projectID)
 	os.MkdirAll(projectDir, 0755)
+
+	// Fetch agent-produced video prompts (shot-level) from Creative Director
+	var segments []cdVideoPromptSegment
+	if concept != nil {
+		cdClient := newCreativeDirectorClient()
+		if err := cdClient.health(); err == nil {
+			if resp, err := cdClient.generateVideoPrompts(projectID, concept, audioPath); err == nil && resp != nil {
+				segments = resp.Segments
+			}
+		}
+	}
 
 	for i := 0; i < len(seeds)-1; i++ {
 		currentSeed := seeds[i]
@@ -188,8 +171,19 @@ func (p *Pipeline) generateAnimationsWithAI(projectID string, seeds []models.Vis
 		videoPath := fmt.Sprintf("%s/%s.mp4", projectDir, animID)
 		duration := nextSeed.Timestamp - currentSeed.Timestamp
 
-		// Generate animation using AI service
-		err := aiAnimator.GenerateAnimation(currentSeed.ImagePath, nextSeed.ImagePath, videoPath, duration)
+		// Choose shot-level prompt segment that covers this interval
+		promptText := currentSeed.Prompt
+		for _, seg := range segments {
+			if currentSeed.Timestamp >= seg.StartBeat && currentSeed.Timestamp < seg.EndBeat {
+				promptText = seg.Prompt
+				break
+			}
+		}
+
+		genParams := map[string]interface{}{
+			"prompt": promptText,
+		}
+		err := aiAnimator.GenerateAnimationWithParams(currentSeed.ImagePath, nextSeed.ImagePath, videoPath, duration, genParams)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate animation %d: %w", i, err)
 		}
@@ -214,10 +208,9 @@ func (p *Pipeline) composeVideoWithFFmpeg(projectID string, animations []models.
 		return "", fmt.Errorf("no animations to compose")
 	}
 
-	// Detect ffmpeg; fallback to placeholder composition if missing
+	// Detect ffmpeg (strict requirement in AI mode)
 	if _, lookErr := exec.LookPath("ffmpeg"); lookErr != nil {
-		log.Printf("FFmpeg not found, falling back to placeholder composition: %v", lookErr)
-		return p.animator.ComposeVideo(projectID, animations, audioPath)
+		return "", fmt.Errorf("ffmpeg not found: %v", lookErr)
 	}
 
 	projectDir := fmt.Sprintf("%s/%s", p.config.OutputDir, projectID)
@@ -275,7 +268,7 @@ func (p *Pipeline) composeVideoWithFFmpeg(projectID string, animations []models.
 }
 
 // getEnhancedConceptFromCreativeDirector gets an enhanced concept from the creative director service
-func (p *Pipeline) getEnhancedConceptFromCreativeDirector(projectID string, originalConcept *models.Concept, characterImages []string) (*models.Concept, error) {
+func (p *Pipeline) getEnhancedConceptFromCreativeDirector(projectID string, originalConcept *models.Concept, characterImages []string, audioPath string) (*models.Concept, error) {
 	log.Printf("Creative director enhancement requested for project %s", projectID)
 
 	client := newCreativeDirectorClient()
@@ -283,7 +276,7 @@ func (p *Pipeline) getEnhancedConceptFromCreativeDirector(projectID string, orig
 		return nil, fmt.Errorf("creative director unavailable: %w", err)
 	}
 
-	resp, err := client.generateSeedPrompts(projectID, originalConcept, characterImages)
+	resp, err := client.generateSeedPrompts(projectID, originalConcept, characterImages, audioPath)
 	if err != nil {
 		return nil, err
 	}

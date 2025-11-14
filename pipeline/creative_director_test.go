@@ -44,7 +44,7 @@ func TestCreativeDirectorClient_GenerateSeedPrompts(t *testing.T) {
 	}
 
 	concept := &models.Concept{Description: "Test"}
-	resp, err := client.generateSeedPrompts("proj1", concept, []string{"/tmp/char.png"})
+	resp, err := client.generateSeedPrompts("proj1", concept, []string{"/tmp/char.png"}, "")
 	if err != nil {
 		t.Fatalf("generateSeedPrompts error: %v", err)
 	}

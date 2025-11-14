@@ -8,7 +8,7 @@ import os
 import torch
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from diffusers import StableDiffusionPipeline, DPMSolverMultistepScheduler
+from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline, DPMSolverMultistepScheduler, EulerDiscreteScheduler
 from PIL import Image
 import logging
 import numpy as np
@@ -41,26 +41,40 @@ def initialize_pipeline():
     device = get_device()
     logger.info(f"Initializing Stable Diffusion on device: {device}")
     
-    # Use smaller model for consumer hardware
-    # Stable Diffusion 1.5 is a good balance of quality and performance
-    model_id = "runwayml/stable-diffusion-v1-5"
+    # Use SDXL for better quality (with 128GB unified memory, we can handle it)
+    # Stable Diffusion XL provides significantly better image quality
+    # For even faster generation, use "stabilityai/sdxl-turbo" instead
+    model_id = os.environ.get("SD_MODEL_ID", "stabilityai/stable-diffusion-xl-base-1.0")
+    
+    # Determine if this is an SDXL model
+    is_sdxl = "xl" in model_id.lower() or "sdxl" in model_id.lower()
     
     try:
         # For MPS (Apple Silicon), use float32 to avoid potential issues
         dtype = torch.float32 if device == "mps" else (torch.float16 if device == "cuda" else torch.float32)
-        logger.info(f"Using dtype: {dtype}")
+        logger.info(f"Using dtype: {dtype}, model: {model_id}, is_sdxl: {is_sdxl}")
         
-        pipeline = StableDiffusionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=dtype,
-            safety_checker=None,  # Disable for faster generation
-            requires_safety_checker=False,
-        )
-        
-        # Use DPM solver for faster generation
-        pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
-            pipeline.scheduler.config
-        )
+        if is_sdxl:
+            # Use SDXL pipeline
+            pipeline = StableDiffusionXLPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                use_safetensors=True,
+            )
+            # SDXL uses EulerDiscreteScheduler by default, but DPM++ works too
+            pipeline.scheduler = EulerDiscreteScheduler.from_config(pipeline.scheduler.config)
+        else:
+            # Use standard SD pipeline
+            pipeline = StableDiffusionPipeline.from_pretrained(
+                model_id,
+                torch_dtype=dtype,
+                safety_checker=None,  # Disable for faster generation
+                requires_safety_checker=False,
+            )
+            # Use DPM solver for faster generation
+            pipeline.scheduler = DPMSolverMultistepScheduler.from_config(
+                pipeline.scheduler.config
+            )
         
         # Move to device
         pipeline = pipeline.to(device)
@@ -78,11 +92,16 @@ def initialize_pipeline():
         # Test the pipeline with a simple generation
         logger.info("Testing pipeline with simple generation...")
         with torch.inference_mode():
+            # Use smaller size for faster testing (SDXL can do 512x512 for testing)
+            test_width = 512 if is_sdxl else 256
+            test_height = 512 if is_sdxl else 256
+            test_steps = 10
+            
             test_result = pipeline(
                 "a simple red apple",
-                num_inference_steps=10,
-                width=256,
-                height=256,
+                num_inference_steps=test_steps,
+                width=test_width,
+                height=test_height,
                 generator=torch.Generator(device=device).manual_seed(42)
             )
         

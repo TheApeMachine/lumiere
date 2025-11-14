@@ -70,6 +70,7 @@ class SeedPromptsRequest(BaseModel):
     audio_summary: Dict[str, Any]
     concept: Concept
     num_variations: int = 6
+    audio_file: Optional[str] = None
 
 
 class SeedPromptsResponse(BaseModel):
@@ -82,7 +83,8 @@ class VideoPromptsRequest(BaseModel):
     project_id: str
     audio_summary: Dict[str, Any]
     concept: Concept
-    beat_map: List[float]
+    beat_map: Optional[List[float]] = None
+    audio_file: Optional[str] = None
 
 
 class VideoPromptsResponse(BaseModel):

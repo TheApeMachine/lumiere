@@ -12,21 +12,53 @@ import (
 	"github.com/TheApeMachine/lumiere/models"
 )
 
+// Service health models (subset of fields we care about)
+type videoHealthResponse struct {
+	PipelineLoaded bool   `json:"pipeline_loaded"`
+	LTXAvailable   bool   `json:"ltx_available"`
+	Mode           string `json:"mode"`
+	Device         string `json:"device"`
+}
+
+// ensureVideoReady verifies the video service can generate videos (not just be up)
+func ensureVideoReady(cfg *AIServiceConfig) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(cfg.VideoServiceURL + "/health")
+	if err != nil {
+		return fmt.Errorf("video service health check failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("video service unhealthy: %s", string(body))
+	}
+	var vh videoHealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&vh); err != nil {
+		return fmt.Errorf("invalid video health response: %w", err)
+	}
+	if !vh.LTXAvailable || !vh.PipelineLoaded || vh.Mode != "ltx-video" {
+		return fmt.Errorf("video generator not ready (device=%s, mode=%s, ltx=%v, loaded=%v)", vh.Device, vh.Mode, vh.LTXAvailable, vh.PipelineLoaded)
+	}
+	return nil
+}
+
 // AIServiceConfig holds configuration for AI services
 type AIServiceConfig struct {
-	ImageServiceURL string
-	VideoServiceURL string
-	AudioServiceURL string
-	Timeout         time.Duration
+	ImageServiceURL     string
+	VideoServiceURL     string
+	AudioServiceURL     string
+	CreativeDirectorURL string
+	Timeout             time.Duration
 }
 
 // DefaultAIServiceConfig returns default configuration
 func DefaultAIServiceConfig() *AIServiceConfig {
 	return &AIServiceConfig{
-		ImageServiceURL: getEnv("IMAGE_SERVICE_URL", "http://localhost:5001"),
-		VideoServiceURL: getEnv("VIDEO_SERVICE_URL", "http://localhost:5002"),
-		AudioServiceURL: getEnv("AUDIO_SERVICE_URL", "http://localhost:5003"),
-		Timeout:         30 * time.Second,
+		ImageServiceURL:     getEnv("IMAGE_SERVICE_URL", "http://localhost:5001"),
+		VideoServiceURL:     getEnv("VIDEO_SERVICE_URL", "http://localhost:5002"),
+		AudioServiceURL:     getEnv("AUDIO_SERVICE_URL", "http://localhost:5003"),
+		CreativeDirectorURL: getEnv("CREATIVE_DIRECTOR_URL", "http://localhost:5004"),
+		Timeout:             30 * time.Second,
 	}
 }
 
@@ -60,9 +92,10 @@ func (cg *AIConceptGenerator) Generate(audioPath, userPrompt string) (*models.Co
 	healthURL := cg.config.AudioServiceURL + "/health"
 	resp, err := cg.client.Get(healthURL)
 	if err != nil || resp.StatusCode != 200 {
-		// Fall back to simulated analysis
-		fmt.Printf("Audio service not available, using fallback: %v\n", err)
-		return NewConceptGenerator().Generate(audioPath, userPrompt)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil, fmt.Errorf("audio service unavailable at %s", cg.config.AudioServiceURL)
 	}
 	resp.Body.Close()
 
@@ -167,9 +200,10 @@ func (vs *AIVisualSeeder) GenerateImageWithParams(prompt, outputPath string, cus
 	healthURL := vs.config.ImageServiceURL + "/health"
 	resp, err := vs.client.Get(healthURL)
 	if err != nil || resp.StatusCode != 200 {
-		// Fall back to placeholder
-		fmt.Printf("Image service not available, using placeholder: %v\n", err)
-		return createPlaceholderImage(prompt, outputPath)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return fmt.Errorf("image service unavailable at %s", vs.config.ImageServiceURL)
 	}
 	resp.Body.Close()
 
@@ -220,12 +254,6 @@ func (vs *AIVisualSeeder) GenerateImageWithParams(prompt, outputPath string, cus
 	return nil
 }
 
-func createPlaceholderImage(prompt, outputPath string) error {
-	// Create a simple text placeholder
-	content := fmt.Sprintf("# AI Generated Image\nPrompt: %s\n", prompt)
-	return os.WriteFile(outputPath, []byte(content), 0644)
-}
-
 // AIAnimator uses Python service for video generation
 type AIAnimator struct {
 	config    *AIServiceConfig
@@ -256,9 +284,10 @@ func (a *AIAnimator) GenerateAnimationWithParams(startFrame, endFrame, outputPat
 	healthURL := a.config.VideoServiceURL + "/health"
 	resp, err := a.client.Get(healthURL)
 	if err != nil || resp.StatusCode != 200 {
-		// Fall back to placeholder
-		fmt.Printf("Video service not available, using placeholder: %v\n", err)
-		return createPlaceholderVideo(startFrame, endFrame, outputPath, duration)
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return fmt.Errorf("video service unavailable at %s", a.config.VideoServiceURL)
 	}
 	resp.Body.Close()
 
@@ -317,11 +346,4 @@ func (a *AIAnimator) GenerateAnimationWithParams(startFrame, endFrame, outputPat
 	}
 
 	return nil
-}
-
-func createPlaceholderVideo(startFrame, endFrame, outputPath string, duration float64) error {
-	// Create a simple text placeholder
-	content := fmt.Sprintf("# AI Generated Animation\nStart: %s\nEnd: %s\nDuration: %.2f seconds\n",
-		startFrame, endFrame, duration)
-	return os.WriteFile(outputPath, []byte(content), 0644)
 }

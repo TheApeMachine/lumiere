@@ -50,4 +50,6 @@ services/*/models/
 *.safetensors
 *.ckpt
 *.pth
-test_audio.mp3
+*.mp3
+logs.log
+services/creative-director/snapshots/*.json

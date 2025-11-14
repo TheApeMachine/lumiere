@@ -15,6 +15,14 @@ from flask_cors import CORS
 
 from filmmaking_team import FilmmakingTeam, AudioAnalyzer, LyricsProcessor
 from audio_intelligence import AudioIntelligence, LyricsIntelligence
+
+# Try to import local LLM support
+try:
+    from local_agents import LocalLLM
+    LOCAL_LLM_AVAILABLE = True
+except ImportError:
+    LOCAL_LLM_AVAILABLE = False
+    LocalLLM = None
 from models import (
     SeedPromptsRequest,
     SeedPromptsResponse,
@@ -42,113 +50,187 @@ app = Flask(__name__)
 CORS(app)
 
 # Initialize filmmaking team and intelligence modules
-filmmaking_team = FilmmakingTeam()
 audio_intelligence = AudioIntelligence()
 lyrics_intelligence = LyricsIntelligence()
+
+# Initialize local LLM lazily (in background thread to avoid blocking server startup)
+llm = None
+llm_initializing = False
+llm_init_error = None
+
+def initialize_llm_async():
+    """Initialize LLM in background thread to avoid blocking server startup."""
+    global llm, llm_initializing, llm_init_error
+    
+    if not LOCAL_LLM_AVAILABLE:
+        return
+    
+    if llm_initializing or llm is not None:
+        return
+    
+    llm_initializing = True
+    
+    try:
+        # Set defaults for all environment variables (will auto-download models if needed)
+        # Default to Mixtral 8x7B for better quality (fits comfortably in 128GB unified memory)
+        # Use transformers by default - more reliable and simpler than GGUF
+        model_path = os.environ.get('LOCAL_LLM_MODEL_PATH') or os.environ.get('LOCAL_LLM_MODEL') or None
+        model_name = os.environ.get('LOCAL_LLM_MODEL_NAME') or os.environ.get('LOCAL_LLM_MODEL') or 'mistralai/Mixtral-8x7B-Instruct-v0.1'
+        use_gguf = os.environ.get('LOCAL_LLM_USE_GGUF', 'false').lower() == 'true'  # Default to transformers
+        
+        logger.info(f"Initializing local LLM in background: model_name={model_name}, use_gguf={use_gguf}")
+        logger.info("Using transformers library (models download automatically like normal)")
+        logger.info("This may take several minutes if downloading the model for the first time...")
+        
+        llm = LocalLLM(model_path=model_path, model_name=model_name, use_gguf=use_gguf, auto_download=True)
+        logger.info("Local LLM initialized successfully")
+        
+        # Update filmmaking team with the new LLM
+        global filmmaking_team
+        filmmaking_team = FilmmakingTeam(audio_intelligence=audio_intelligence, llm=llm)
+        logger.info("Filmmaking team updated with local LLM")
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize local LLM: {e}", exc_info=True)
+        llm_init_error = str(e)
+        logger.warning("Falling back to OpenAI Agents SDK (if available)")
+        
+        # Check if OpenAI Agents SDK is available as fallback
+        try:
+            import agents
+            logger.info("OpenAI Agents SDK is available as fallback")
+        except ImportError:
+            logger.error("Neither local LLM nor OpenAI Agents SDK is available!")
+            logger.error("Please install transformers: pip install transformers torch")
+            logger.error("Or set OPENAI_API_KEY environment variable for OpenAI Agents SDK")
+    finally:
+        llm_initializing = False
+
+# Start LLM initialization in background thread
+import threading
+llm_init_thread = threading.Thread(target=initialize_llm_async, daemon=True)
+llm_init_thread.start()
+
+# Initialize filmmaking team without LLM initially (will be updated when LLM loads)
+filmmaking_team = FilmmakingTeam(audio_intelligence=audio_intelligence, llm=None)
+
+def wait_for_llm(timeout=600):
+    """Wait for LLM to be ready, with timeout (default 10 minutes for large model downloads)."""
+    import time
+    start_time = time.time()
+    while llm_initializing and (time.time() - start_time) < timeout:
+        time.sleep(1)
+    return llm is not None
 
 
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint."""
-    return jsonify({"status": "healthy", "service": "creative-director"})
+    status = "healthy"
+    if llm_initializing:
+        status = "initializing"
+    elif llm is None and llm_init_error:
+        status = "degraded"  # Service running but LLM failed
+    
+    return jsonify({
+        "status": status,
+        "service": "creative-director",
+        "llm_ready": llm is not None,
+        "llm_initializing": llm_initializing,
+        "llm_error": llm_init_error if llm is None else None
+    })
 
 
 @app.route('/healthz', methods=['GET'])
 def healthz_check():
     """Kubernetes-style health check."""
-    return jsonify({"status": "ok"})
+    # Return 200 even if LLM is still initializing - service is up and can handle requests
+    # The LLM will be ready when needed (lazy initialization)
+    return jsonify({"status": "ok"}), 200
 
 
 def _infer_concept(concept: Concept, audio_summary: Dict[str, Any]) -> Concept:
-    """Fill missing concept fields based on audio summary or defaults."""
-    theme = concept.theme or _guess_theme(audio_summary)
-    mood = concept.mood or _guess_mood(audio_summary)
-    visual_style = concept.visual_style or _guess_style(audio_summary)
+    """Fill missing concept fields using simple heuristics and defaults.
+
+    Ensures `mood`, `visual_style`, and at least one character are present so downstream
+    prompt/story builders can rely on them.
+    """
+    title = concept.title
+    theme = concept.theme or (audio_summary.get("theme") if isinstance(audio_summary, dict) else None) or "change"
+    # Derive a basic mood from audio summary if available
+    mood = concept.mood or (audio_summary.get("mood") if isinstance(audio_summary, dict) else None)
+    if not mood:
+        bpm = audio_summary.get("bpm") if isinstance(audio_summary, dict) else None
+        try:
+            mood = "energetic" if bpm and float(bpm) >= 110 else "contemplative"
+        except Exception:
+            mood = "dynamic"
+
+    visual_style = concept.visual_style or "cinematic"
+
+    characters: List[Character] = concept.characters or []
+    if not characters:
+        characters = [
+            Character(id="lead", name="Protagonist", role="lead", descriptors=["distinctive", "memorable"], reference_images=[])
+        ]
+
     return Concept(
-        title=concept.title,
+        title=title,
         theme=theme,
         mood=mood,
         visual_style=visual_style,
-        characters=concept.characters or [],
+        characters=characters,
     )
 
 
-def _guess_theme(audio_summary: Dict[str, Any]) -> str:
-    return "transformation"
-
-
-def _guess_mood(audio_summary: Dict[str, Any]) -> str:
-    bpm = audio_summary.get("bpm") or audio_summary.get("tempo")
-    try:
-        bpm_val = float(bpm) if bpm is not None else 100.0
-    except Exception:
-        bpm_val = 100.0
-    return "brooding" if bpm_val < 90 else ("uplifting" if bpm_val > 130 else "driving")
-
-
-def _guess_style(audio_summary: Dict[str, Any]) -> str:
-    return "cinematic music video, anamorphic, rich contrast"
-
-
 def _build_story_plan(audio_summary: Dict[str, Any], concept_final: Concept) -> StoryPlan:
-    beats: List[float] = audio_summary.get("beats") or audio_summary.get("beat_times") or []
-    if not beats:
-        # Fallback: 7 evenly spaced beats over 90s
-        beats = [0.0, 15.0, 30.0, 45.0, 60.0, 75.0, 90.0]
+    """Construct a minimal but structured StoryPlan from beats and concept.
 
-    # Create scenes by grouping beats into 3 acts
-    n = len(beats)
-    cut1 = max(1, n // 3)
-    cut2 = max(cut1 + 1, (2 * n) // 3)
-    act_splits = [(0, cut1), (cut1, cut2), (cut2, n)]
+    Groups beats into simple scenes (2 beats per scene) with placeholder locations
+    and maps characters by id.
+    """
+    beats_raw: List[float] = []
+    if isinstance(audio_summary, dict):
+        beats_raw = audio_summary.get("beats") or audio_summary.get("beat_times") or []
 
-    locations = [
-        "alley in the rain",
-        "rooftop at dusk",
-        "neon market",
-        "subway platform",
-        "riverfront at night",
-        "bridge in fog",
-        "city overlook",
-    ]
-    times = ["dawn", "day", "dusk", "night"]
-    palettes = [
-        ["cool teal", "neon magenta"],
-        ["amber", "deep blue"],
-        ["violet", "electric cyan"],
-    ]
+    # Ensure we have at least a handful of beat boundaries
+    if not beats_raw or len(beats_raw) < 2:
+        # Create a fallback beat grid (0, 10, 20, ...)
+        beats_raw = [float(i * 10.0) for i in range(0, 8)]
 
-    scenes: List[Scene] = []
-    scene_index = 0
-    for act_idx, (s, e) in enumerate(act_splits):
-        for i in range(s, e - 1):
-            start_bt = float(beats[i])
-            end_bt = float(beats[i + 1])
-            beat = StoryBeat(
+    # Create StoryBeats
+    story_beats: List[StoryBeat] = []
+    for i in range(len(beats_raw) - 1):
+        story_beats.append(
+            StoryBeat(
                 beat_index=i,
-                label=["setup", "rising", "climax"][min(act_idx, 2)],
-                start_beat=start_bt,
-                end_beat=end_bt,
+                label=f"Beat {i+1}",
+                start_beat=float(beats_raw[i]),
+                end_beat=float(beats_raw[i + 1]),
             )
+        )
 
-            loc = locations[min(scene_index, len(locations) - 1)]
-            tod = times[(scene_index + act_idx) % len(times)]
-            pal = palettes[min(act_idx, len(palettes) - 1)]
-            chars = [c.id for c in concept_final.characters][:2]
-
-            scenes.append(
-                Scene(
-                    scene_index=scene_index,
-                    location=loc,
-                    time_of_day=tod,
-                    characters_on_stage=chars,
-                    palette=pal,
-                    beats=[beat],
-                )
+    # Group beats into scenes: 2 beats per scene
+    scenes: List[Scene] = []
+    characters_on_stage = [c.id for c in (concept_final.characters or [])] or ["lead"]
+    for s_idx in range(0, len(story_beats), 2):
+        scene_beats = story_beats[s_idx:s_idx + 2]
+        if not scene_beats:
+            continue
+        location = "urban exterior" if (s_idx // 2) % 2 == 0 else "interior studio"
+        time_of_day = "night" if concept_final.mood and concept_final.mood.lower() in {"moody", "dark"} else "day"
+        scenes.append(
+            Scene(
+                scene_index=len(scenes),
+                location=location,
+                time_of_day=time_of_day,
+                characters_on_stage=characters_on_stage[:2],
+                palette=[],
+                beats=scene_beats,
             )
-            scene_index += 1
+        )
 
-    logline = f"{concept_final.title}: a {concept_final.mood} journey of {concept_final.theme}."
+    logline = f"A {concept_final.mood or 'dynamic'} {concept_final.theme or 'theme'} journey inspired by the music."
     return StoryPlan(logline=logline, acts=3, scenes=scenes)
 
 
@@ -319,14 +401,108 @@ def v1_seed_prompts():
         req = SeedPromptsRequest(**(request.get_json() or {}))
 
         concept_final = _infer_concept(req.concept, req.audio_summary)
-        story = _build_story_plan(req.audio_summary, concept_final)
-        prompts = _prompts_from_story(story, concept_final, req.num_variations)
 
-        resp = SeedPromptsResponse(
-            concept_final=concept_final,
-            story_plan=story,
-            prompts=prompts,
-        )
+        # If we have an audio file, use the agent team to create director vision and scene prompts.
+        if req.audio_file:
+            # Wait for LLM to be ready (with timeout - 10 minutes for large model downloads)
+            if llm_initializing:
+                logger.info("LLM is still initializing, waiting...")
+                if not wait_for_llm(timeout=600):
+                    return jsonify({
+                        "error": "LLM initialization timed out. Please check logs and try again.",
+                        "llm_initializing": True
+                    }), 503
+            
+            if llm is None and LOCAL_LLM_AVAILABLE:
+                return jsonify({
+                    "error": "LLM not available. Check logs for initialization errors.",
+                    "llm_error": llm_init_error
+                }), 503
+            
+            logger.info("\n" + "=" * 80)
+            logger.info("[SEED_PROMPTS ENDPOINT] Starting filmmaking team pipeline")
+            logger.info(f"Audio file: {req.audio_file}")
+            logger.info(f"Project ID: {req.project_id}")
+            logger.info(f"Number of variations requested: {req.num_variations}")
+            logger.info("=" * 80)
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                logger.info("\n[CREATING MUSIC VIDEO CONCEPT...]")
+                director_vision = loop.run_until_complete(
+                    filmmaking_team.create_music_video_concept(
+                        audio_file_path=req.audio_file,
+                        user_prompt=concept_final.title,
+                        lyrics=None,
+                    )
+                )
+                logger.info(f"\n[CONCEPT CREATED] Type: {type(director_vision)}")
+                logger.info(f"Director vision has scene_breakdown: {hasattr(director_vision, 'scene_breakdown')}")
+
+                logger.info("\n[GENERATING SCENE PROMPTS...]")
+                scene_prompts = loop.run_until_complete(
+                    filmmaking_team.generate_scene_prompts(director_vision)
+                )
+                logger.info(f"\n[SCENE PROMPTS GENERATED] Total: {len(scene_prompts)}")
+                for i, sp in enumerate(scene_prompts[:3]):
+                    logger.info(f"  Scene {i+1}: {sp.get('detailed_prompt', 'N/A')[:100]}...")
+            finally:
+                loop.close()
+
+            # Map scene prompts onto beat intervals to produce seed prompts
+            logger.info("\n[MAPPING SCENE PROMPTS TO SEED IMAGE PROMPTS]")
+            beats: List[float] = req.audio_summary.get("beats") or req.audio_summary.get("beat_times") or []
+            logger.info(f"Beats available: {len(beats)} beats")
+            logger.info(f"Scene prompts available: {len(scene_prompts)} scenes")
+            logger.info(f"Number of variations requested: {req.num_variations}")
+
+            prompts: List[SeedImagePrompt] = []
+            count = min(len(scene_prompts), max(1, req.num_variations))
+            logger.info(f"Creating {count} seed prompts")
+
+            for i in range(count):
+                sp = scene_prompts[i]
+                start_bt = float(beats[i]) if i < len(beats) else float(i * 10.0)
+                end_bt = float(beats[i + 1]) if i + 1 < len(beats) else start_bt + 10.0
+                txt = sp.get("detailed_prompt") or sp.get("description") or concept_final.title
+                chars = sp.get("characters", [])
+                ref_imgs = sp.get("reference_images", [])
+
+                logger.info(f"\n[Seed Prompt {i+1}/{count}]")
+                logger.info(f"  Time range: {start_bt:.1f}s - {end_bt:.1f}s")
+                logger.info(f"  Prompt: {txt}")
+                logger.info(f"  Characters: {chars}")
+                logger.info(f"  Reference images: {len(ref_imgs)} images")
+
+                prompts.append(SeedImagePrompt(
+                    prompt=txt,
+                    negative_prompt="low-res, blurry, duplicate",
+                    start_beat=start_bt,
+                    end_beat=end_bt,
+                    seed=None,
+                    style_tags=[concept_final.visual_style] if concept_final.visual_style else [],
+                    characters=chars,
+                    reference_images=ref_imgs,
+                ))
+
+            logger.info(f"\n[SEED PROMPTS CREATED] Total: {len(prompts)}")
+
+            story = _build_story_plan(req.audio_summary, concept_final)
+            resp = SeedPromptsResponse(
+                concept_final=concept_final,
+                story_plan=story,
+                prompts=prompts,
+            )
+        else:
+            # Fallback (no audio file): build prompts procedurally from beats and concept
+            story = _build_story_plan(req.audio_summary, concept_final)
+            prompts = _prompts_from_story(story, concept_final, req.num_variations)
+            resp = SeedPromptsResponse(
+                concept_final=concept_final,
+                story_plan=story,
+                prompts=prompts,
+            )
 
         payload = json.loads(resp.model_dump_json())
         _write_snapshot(req.project_id, "seed_prompts", payload)
@@ -343,14 +519,77 @@ def v1_video_prompts():
         req = VideoPromptsRequest(**(request.get_json() or {}))
 
         concept_final = _infer_concept(req.concept, req.audio_summary)
-        story = _build_story_plan(req.audio_summary, concept_final)
-        segments = _segments_from_story(story, concept_final)
 
-        resp = VideoPromptsResponse(
-            concept_final=concept_final,
-            story_plan=story,
-            segments=segments,
-        )
+        # If audio_file provided, use agent team to derive story first
+        if req.audio_file:
+            # Wait for LLM to be ready (with timeout - 10 minutes for large model downloads)
+            if llm_initializing:
+                logger.info("LLM is still initializing, waiting...")
+                if not wait_for_llm(timeout=600):
+                    return jsonify({
+                        "error": "LLM initialization timed out. Please check logs and try again.",
+                        "llm_initializing": True
+                    }), 503
+            
+            if llm is None and LOCAL_LLM_AVAILABLE:
+                return jsonify({
+                    "error": "LLM not available. Check logs for initialization errors.",
+                    "llm_error": llm_init_error
+                }), 503
+            
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                director_vision = loop.run_until_complete(
+                    filmmaking_team.create_music_video_concept(
+                        audio_file_path=req.audio_file,
+                        user_prompt=concept_final.title,
+                        lyrics=None,
+                    )
+                )
+                scene_prompts = loop.run_until_complete(
+                    filmmaking_team.generate_scene_prompts(director_vision)
+                )
+            finally:
+                loop.close()
+
+            # Map scenes to segments aligned to provided beat_map
+            beats: List[float] = req.beat_map or req.audio_summary.get("beats") or []
+            segments: List[VideoPromptSegment] = []
+            count = max(len(scene_prompts), 0)
+            for i in range(count):
+                sp = scene_prompts[i]
+                start_bt = float(beats[i]) if i < len(beats) else float(i * 10.0)
+                end_bt = float(beats[i + 1]) if i + 1 < len(beats) else start_bt + 10.0
+                prompt = sp.get("detailed_prompt") or sp.get("description") or concept_final.title
+                segments.append(VideoPromptSegment(
+                    start_beat=start_bt,
+                    end_beat=end_bt,
+                    prompt=prompt,
+                    negative_prompt="glitches, artifacts",
+                    motion_notes="motivated camera, evolving blocking",
+                    transition="musical cut",
+                    characters_on_screen=sp.get("characters", []),
+                    reference_images=sp.get("reference_images", []),
+                    scene_index=sp.get("scene_id", i),
+                    beat_index=i,
+                ))
+
+            story = _build_story_plan({"beats": beats}, concept_final)
+            resp = VideoPromptsResponse(
+                concept_final=concept_final,
+                story_plan=story,
+                segments=segments,
+            )
+        else:
+            story = _build_story_plan(req.audio_summary, concept_final)
+            segments = _segments_from_story(story, concept_final)
+            resp = VideoPromptsResponse(
+                concept_final=concept_final,
+                story_plan=story,
+                segments=segments,
+            )
+
         payload = json.loads(resp.model_dump_json())
         _write_snapshot(req.project_id, "video_prompts", payload)
         return jsonify(payload)
@@ -490,7 +729,7 @@ def create_creative_brief():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5003))
+    port = int(os.environ.get('PORT', 5004))
     debug = os.environ.get('DEBUG', 'false').lower() == 'true'
 
     logger.info(f"Starting Creative Director service on port {port}")

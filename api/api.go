@@ -74,16 +74,12 @@ func (s *Server) createProject(c *gin.Context) {
 		return
 	}
 
-	// Get prompt
-	prompt := c.PostForm("prompt")
-	if prompt == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Prompt is required"})
-		return
-	}
+    // Get optional prompt (allow empty; pipeline can proceed without it)
+    prompt := c.PostForm("prompt")
 
 	// Create project
 	projectID := uuid.New().String()
-	project := &models.Project{
+    project := &models.Project{
 		ID:              projectID,
 		Prompt:          prompt,
 		Status:          "created",

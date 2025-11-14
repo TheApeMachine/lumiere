@@ -12,11 +12,14 @@ from PIL import Image
 import logging
 import cv2
 import numpy as np
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 
 # Try to import LTX-Video (Diffusers integration)
 try:
     from diffusers import LTXConditionPipeline
-    from diffusers.utils import export_to_video, load_image
+    from diffusers.utils import load_image, load_video, export_to_video
+    from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
     LTX_AVAILABLE = True
 except ImportError:
     LTX_AVAILABLE = False
@@ -46,254 +49,179 @@ def get_device():
 def initialize_pipeline():
     """Initialize LTX-Video pipeline with appropriate device"""
     global pipeline, device
-    
+
     device = get_device()
     logger.info(f"Initializing LTX-Video pipeline on device: {device}")
-    
+
     try:
         if device == "cpu":
-            logger.warning("CPU detected - will use frame interpolation instead of AI models")
-            return True
-                
-        # Use LTX-Video model (this will auto-download from HuggingFace)
-        model_id = "Lightricks/LTX-Video"  # Use the dev version as you suggested
-        
+            logger.error("CPU detected - LTX-Video requires GPU; strict mode: disabling /generate")
+            return True  # start server; /generate will refuse
+
+        # Use LTX-Video condition pipeline (matches HF example/API)
+        model_id = "Lightricks/LTX-Video"
+
         logger.info(f"Downloading LTX-Video model: {model_id}")
         logger.info("This may take several minutes on first run...")
-        
-        pipeline = LTXConditionPipeline.from_pretrained(
-            model_id,
-            torch_dtype=torch.bfloat16 if device in ["cuda", "mps"] else torch.float32,
-        )
-        
-        pipeline = pipeline.to(device)
-        
-        # Enable memory optimizations
-        pipeline.vae.enable_tiling()
-        
-        # Enable CPU offload for CUDA to save VRAM
-        if device == "cuda":
-            try:
-                pipeline.enable_model_cpu_offload()
-            except Exception as e:
-                logger.warning(f"Could not enable CPU offload: {e}")
-        
+
+        dtype = torch.bfloat16 if device in ["cuda", "mps"] else torch.float32
+        pipeline_local = LTXConditionPipeline.from_pretrained(model_id, torch_dtype=dtype)
+
+        pipeline = pipeline_local.to(device)
+
+        # # Enable memory optimizations
+        # pipeline.vae.enable_tiling()
+
+        # # Enable CPU offload for CUDA to save VRAM
+        # if device == "cuda":
+        #     try:
+        #         pipeline.enable_model_cpu_offload()
+        #     except Exception as e:
+        #         logger.warning(f"Could not enable CPU offload: {e}")
+
         logger.info("LTX-Video pipeline initialized successfully")
         return True
-        
+
     except Exception as e:
         logger.error(f"Failed to initialize LTX-Video pipeline: {e}")
-        logger.info("Falling back to interpolation mode")
-        return True
+        logger.error("Strict mode: disabling /generate endpoint")
+        return True  # start server; /generate will refuse
 
-def simple_interpolate_frames(start_frame_path, end_frame_path, output_path, num_frames=14, fps=7):
-    """Enhanced frame interpolation with smooth transitions"""
-    logger.info("Using enhanced interpolation for video generation")
-    
-    # Load images
-    start_img = cv2.imread(start_frame_path)
-    end_img = cv2.imread(end_frame_path)
-    
-    if start_img is None or end_img is None:
-        raise ValueError("Could not load start or end frame")
-    
-    # Ensure same size
-    if start_img.shape != end_img.shape:
-        end_img = cv2.resize(end_img, (start_img.shape[1], start_img.shape[0]))
-    
-    height, width = start_img.shape[:2]
-    
-    # Create video writer with better codec
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    
-    # Generate interpolated frames with smooth easing
-    for i in range(num_frames):
-        # Use smooth easing instead of linear interpolation
-        t = i / (num_frames - 1)
-        # Smooth step function for more natural transitions
-        alpha = t * t * (3.0 - 2.0 * t)  # smoothstep
-        
-        # Basic blend
-        frame = cv2.addWeighted(start_img, 1 - alpha, end_img, alpha, 0)
-        
-        # Add subtle zoom effect for more dynamic feel
-        if i < num_frames // 2:
-            # Slight zoom in during first half
-            zoom_factor = 1.0 + (alpha * 0.05)  # Max 5% zoom
-        else:
-            # Slight zoom out during second half  
-            zoom_factor = 1.05 - ((alpha - 0.5) * 0.05)
-        
-        if zoom_factor != 1.0:
-            h_new, w_new = int(height * zoom_factor), int(width * zoom_factor)
-            frame_zoomed = cv2.resize(frame, (w_new, h_new))
-            
-            # Center crop back to original size
-            y_start = (h_new - height) // 2
-            x_start = (w_new - width) // 2
-            frame = frame_zoomed[y_start:y_start+height, x_start:x_start+width]
-        
-        out.write(frame)
-    
-    out.release()
-    logger.info(f"Video created with {num_frames} interpolated frames at {output_path}")
-    return output_path
+class VideoPromptsRequest(BaseModel):
+    project_id: str
+    seed_prompts: List[Dict[str, Any]]
+    beat_map: Optional[List[Dict[str, Any]]] = None
+    audio_file: str
+    audio_summary: Dict[str, Any]
+
+class GenerateRequest(BaseModel):
+    start_frame: str
+    end_frame: str
+    output_path: str
+    prompt: Optional[str] = None
+    num_frames: int = 16
+    fps: int = 8
+    use_dynamic_shifting: bool = True
+    mu: float = 0.9
+    seed: Optional[int] = None
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
+    """Health check endpoint (returns 200 only when generator is ready)."""
+    ready = bool(LTX_AVAILABLE and pipeline is not None and device != "cpu")
+    mode = 'ltx-video' if (pipeline and LTX_AVAILABLE) else None
+    payload = {
+        'status': 'ready' if ready else 'not_ready',
         'device': device,
         'pipeline_loaded': pipeline is not None,
         'ltx_available': LTX_AVAILABLE,
-        'mode': 'ltx-video' if (pipeline and LTX_AVAILABLE) else 'interpolation'
-    })
+        'mode': mode
+    }
+    return (jsonify(payload), 200) if ready else (jsonify(payload), 503)
+
+@app.route('/ready', methods=['GET'])
+def ready():
+    """Explicit readiness endpoint equivalent to health in strict mode."""
+    return health()
 
 @app.route('/generate', methods=['POST'])
 def generate_video():
-    """Generate video from start and end frames"""
+    """Generate a video from a start and end frame."""
     try:
-        data = request.json
-        start_frame_path = data.get('start_frame')
-        end_frame_path = data.get('end_frame')
-        output_path = data.get('output_path')
-        num_frames = data.get('num_frames', 14)
-        fps = data.get('fps', 7)
-        
-        if not start_frame_path or not end_frame_path:
-            return jsonify({'error': 'start_frame and end_frame are required'}), 400
-        
-        if not output_path:
-            return jsonify({'error': 'output_path is required'}), 400
-        
-        logger.info(f"Generating video from {start_frame_path} to {end_frame_path}")
-        
-        # Check if files exist
-        if not os.path.exists(start_frame_path):
-            return jsonify({'error': f'Start frame not found: {start_frame_path}'}), 400
-        if not os.path.exists(end_frame_path):
-            return jsonify({'error': f'End frame not found: {end_frame_path}'}), 400
-        
-        # Create output directory
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        # Use AI pipeline if available, otherwise use interpolation
-        if pipeline and device != "cpu":
-            try:
-                result_path = generate_with_ai(
-                    start_frame_path, end_frame_path, output_path, 
-                    num_frames, fps
-                )
-            except Exception as e:
-                logger.warning(f"AI generation failed: {e}, falling back to interpolation")
-                result_path = simple_interpolate_frames(
-                    start_frame_path, end_frame_path, output_path, 
-                    num_frames, fps
-                )
-        else:
-            result_path = simple_interpolate_frames(
-                start_frame_path, end_frame_path, output_path, 
-                num_frames, fps
+        req = GenerateRequest(**(request.get_json() or {}))
+
+        start_image = Image.open(req.start_frame).convert("RGB")
+        end_image = Image.open(req.end_frame).convert("RGB")
+
+        # LTX requires a video condition; create a tiny conditioning clip from the seed images
+        # and anchor conditions at first and last frames
+        conditioning_path = export_to_video([start_image, end_image], fps=req.fps)
+        conditioning_video = load_video(conditioning_path)
+
+        # Adjust frame count to be compatible with LTX (multiple of 8 plus 1)
+        adjusted_frames = ((int(req.num_frames) - 1) // 8) * 8 + 1
+        if adjusted_frames < 9:
+            adjusted_frames = 9
+        if adjusted_frames > 33:
+            adjusted_frames = 33
+
+        conditions = [
+            LTXVideoCondition(video=conditioning_video, frame_index=0),
+            LTXVideoCondition(video=conditioning_video, frame_index=min(len(conditioning_video) - 1, 1)),
+        ]
+
+        # Prepare generator if seed is provided
+        generator = None
+        if req.seed is not None:
+            generator = torch.manual_seed(req.seed)
+
+        logger.info(f"Generating video with prompt: {req.prompt}, num_frames: {adjusted_frames}, fps: {req.fps}")
+
+        with torch.inference_mode():
+            result = pipeline(
+                conditions=conditions,
+                prompt=req.prompt or "cinematic video",
+                num_frames=adjusted_frames,
+                num_inference_steps=10,
+                output_type="pil",
+                generator=generator,
+                use_dynamic_shifting=req.use_dynamic_shifting,
+                mu=req.mu,
             )
-        
-        logger.info(f"Video saved to: {result_path}")
+
+        frames = getattr(result, "frames", None)
+        if not frames:
+            raise RuntimeError("Pipeline returned no frames")
+
+        export_to_video(frames[0], req.output_path, fps=req.fps)
+
+        logger.info(f"Video saved to: {req.output_path}")
         return jsonify({
             'success': True,
-            'output_path': result_path,
-            'num_frames': num_frames,
-            'fps': fps
+            'output_path': req.output_path,
+            'num_frames': req.num_frames,
+            'fps': req.fps
         })
-        
+
     except Exception as e:
         logger.error(f"Error generating video: {e}")
         return jsonify({'error': str(e)}), 500
 
-def generate_with_ai(start_frame_path, end_frame_path, output_path, num_frames, fps):
-    """Generate video using LTX-Video model"""
-    logger.info("Using LTX-Video model for video generation")
-    
-    if not LTX_AVAILABLE or pipeline is None:
-        raise Exception("LTX-Video pipeline not available")
-    
-    # Load start frame
-    image = load_image(start_frame_path)
-    
-    # LTX-Video works best with resolutions divisible by 32
-    # Keep it reasonable for consumer hardware
-    target_width, target_height = 512, 512
-    image = image.resize((target_width, target_height))
-    
-    # LTX-Video works with frames divisible by 8 + 1
-    # Adjust num_frames to fit this requirement
-    adjusted_frames = ((num_frames - 1) // 8) * 8 + 1
-    if adjusted_frames < 9:
-        adjusted_frames = 9  # Minimum
-    if adjusted_frames > 25:
-        adjusted_frames = 25  # Keep it reasonable for speed
-    
-    # Create a simple prompt based on the transition
-    prompt = "smooth cinematic transition, high quality, detailed"
-    negative_prompt = "blurry, low quality, distorted, jittery, inconsistent motion"
-    
-    # Generate video with LTX-Video
-    with torch.inference_mode():
-        from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
-        from diffusers.utils import load_video
-        
-        # Convert image to video format for conditioning
-        video = load_video(export_to_video([image], fps=fps))
-        condition = LTXVideoCondition(video=video, frame_index=0)
-        
-        result = pipeline(
-            conditions=[condition],
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            width=target_width,
-            height=target_height,
-            num_frames=adjusted_frames,
-            num_inference_steps=10,  # Fast generation
-            generator=torch.Generator(device=device).manual_seed(42),
-            output_type="pil"
-        )
-        
-        frames = result.frames[0]
-    
-    # Export to video
-    export_to_video(frames, output_path, fps=fps)
-    
-    return output_path
-
-@app.route('/interpolate', methods=['POST'])
-def interpolate():
-    """Simple frame interpolation endpoint"""
+@app.route('/v1/video_prompts', methods=['POST'])
+def create_video_prompts():
+    """Create video prompts from seed prompts and a beat map."""
     try:
-        data = request.json
-        start_frame = data.get('start_frame')
-        end_frame = data.get('end_frame')
-        output_path = data.get('output_path')
-        num_frames = data.get('num_frames', 14)
-        fps = data.get('fps', 7)
-        
-        if not all([start_frame, end_frame, output_path]):
-            return jsonify({'error': 'start_frame, end_frame, and output_path are required'}), 400
-        
-        result = simple_interpolate_frames(start_frame, end_frame, output_path, num_frames, fps)
-        
-        return jsonify({
-            'success': True,
-            'output_path': result
-        })
-        
+        req = VideoPromptsRequest(**(request.get_json() or {}))
+
+        prompts = []
+        for i in range(len(req.seed_prompts) - 1):
+            start_prompt = req.seed_prompts[i]
+            end_prompt = req.seed_prompts[i+1]
+
+            # Default duration if beat_map is not available
+            duration = 10.0
+            if req.beat_map and len(req.beat_map) > i + 1:
+                start_beat = req.beat_map[i]
+                end_beat = req.beat_map[i+1]
+                duration = end_beat.get('time', 0) - start_beat.get('time', 0)
+
+            prompts.append({
+                "start_prompt": start_prompt,
+                "end_prompt": end_prompt,
+                "duration": duration,
+            })
+
+        resp = {"prompts": prompts}
+        return jsonify(resp)
+
     except Exception as e:
-        logger.error(f"Error in interpolation: {e}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"/v1/video_prompts error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     logger.info("Starting Video Generation Service")
     logger.info(f"Device detection: {get_device()}")
-    
+
     # Initialize pipeline on startup
     if initialize_pipeline():
         port = int(os.environ.get('VIDEO_SERVICE_PORT', 5002))
